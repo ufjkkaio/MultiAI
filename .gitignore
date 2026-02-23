@@ -1,0 +1,30 @@
+# ============================================
+# APIキー・秘密情報（絶対にコミットしない）
+# ============================================
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+secrets/.env
+secrets/.env.*
+!.env.example
+!secrets/.env.example
+*.key
+*.pem
+**/secrets/*.key
+**/secrets/*.pem
+
+# Swift / Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace
+!default.xcworkspace
+
+# macOS
+.DS_Store
+
+# その他
+node_modules/
+*.log

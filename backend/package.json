@@ -1,0 +1,22 @@
+{
+  "name": "multiai-backend",
+  "version": "1.0.0",
+  "description": "MultiAI backend API (Railway)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "apple-signin-auth": "^1.7.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
+    "openai": "^4.73.0",
+    "pg": "^8.13.0"
+  }
+}
