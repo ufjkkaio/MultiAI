@@ -35,17 +35,35 @@ async function callGemini(messages) {
   return text?.trim() || '';
 }
 
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 async function getResponses(userMessage, history) {
   const messages = buildMessages(history);
   const nextMessages = [...messages, { role: 'user', content: userMessage }];
 
+  const timeoutMs = parseInt(process.env.AI_TIMEOUT_MS || '30000', 10); // デフォルト 30 秒
+
   const [openaiResult, geminiResult] = await Promise.allSettled([
-    callOpenAI(nextMessages),
-    callGemini(nextMessages),
+    withTimeout(callOpenAI(nextMessages), timeoutMs, 'OpenAI'),
+    withTimeout(callGemini(nextMessages), timeoutMs, 'Gemini'),
   ]);
 
   const openaiText = openaiResult.status === 'fulfilled' ? openaiResult.value : null;
   const geminiText = geminiResult.status === 'fulfilled' ? geminiResult.value : null;
+
+  if (geminiResult.status === 'rejected') {
+    console.error('Gemini error:', geminiResult.reason?.message || geminiResult.reason);
+  }
+  if (openaiResult.status === 'rejected') {
+    console.error('OpenAI error:', openaiResult.reason?.message || openaiResult.reason);
+  }
 
   return [
     { provider: 'openai', content: openaiText, error: openaiResult.status === 'rejected' ? openaiResult.reason?.message : null },
