@@ -1,5 +1,6 @@
 const express = require('express');
-const { query } = require('../db');
+const path = require('path');
+const { query } = require(path.join(__dirname, '..', 'db.js'));
 const { getResponsesStreaming } = require('../chat');
 const config = require('../config');
 const { authMiddleware } = require('../auth');
