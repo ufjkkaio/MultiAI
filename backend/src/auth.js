@@ -20,7 +20,7 @@ function verifyToken(token) {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     return decoded.userId;
-  } catch {
+  } catch (_) {
     return null;
   }
 }

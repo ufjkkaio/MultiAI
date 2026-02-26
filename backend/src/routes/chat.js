@@ -1,6 +1,6 @@
 const express = require('express');
 const { query } = require('../db');
-const { getResponses } = require('../chat');
+const { getResponsesStreaming } = require('../chat');
 const config = require('../config');
 const { authMiddleware } = require('../auth');
 
@@ -75,6 +75,10 @@ router.get('/rooms/:roomId/messages', async (req, res) => {
   }
 });
 
+function sendSSE(res, event, data) {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
 router.post('/rooms/:roomId/messages', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -116,26 +120,36 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       [roomId, 'user', content.trim()]
     );
 
-    const responses = await getResponses(content.trim(), history);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
 
-    const inserted = [];
-    for (const r of responses) {
+    sendSSE(res, 'user', { content: content.trim() });
+
+    await getResponsesStreaming(content.trim(), history, async (r) => {
       if (r.content) {
-        await query(
+        const q = await query(
           'INSERT INTO messages (room_id, role, provider, content) VALUES ($1, $2, $3, $4) RETURNING id, role, provider, content, created_at',
           [roomId, 'assistant', r.provider, r.content]
-        ).then((q) => inserted.push(q.rows[0]));
+        );
+        sendSSE(res, 'message', q.rows[0]);
+      } else if (r.error) {
+        sendSSE(res, 'error', { provider: r.provider, error: r.error });
       }
-    }
-
-    res.status(201).json({
-      userMessage: { content: content.trim() },
-      assistantMessages: inserted,
-      errors: responses.filter((r) => r.error).map((r) => ({ provider: r.provider, error: r.error })),
     });
+
+    sendSSE(res, 'done', {});
+    res.end();
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to send message' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to send message' });
+    } else {
+      sendSSE(res, 'error', { error: err.message });
+      res.end();
+    }
   }
 });
 

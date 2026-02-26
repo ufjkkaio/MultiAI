@@ -35,17 +35,35 @@ async function callGemini(messages) {
   return text?.trim() || '';
 }
 
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 async function getResponses(userMessage, history) {
   const messages = buildMessages(history);
   const nextMessages = [...messages, { role: 'user', content: userMessage }];
 
+  const timeoutMs = parseInt(process.env.AI_TIMEOUT_MS || '30000', 10); // デフォルト 30 秒
+
   const [openaiResult, geminiResult] = await Promise.allSettled([
-    callOpenAI(nextMessages),
-    callGemini(nextMessages),
+    withTimeout(callOpenAI(nextMessages), timeoutMs, 'OpenAI'),
+    withTimeout(callGemini(nextMessages), timeoutMs, 'Gemini'),
   ]);
 
   const openaiText = openaiResult.status === 'fulfilled' ? openaiResult.value : null;
   const geminiText = geminiResult.status === 'fulfilled' ? geminiResult.value : null;
+
+  if (geminiResult.status === 'rejected') {
+    console.error('Gemini error:', geminiResult.reason?.message || geminiResult.reason);
+  }
+  if (openaiResult.status === 'rejected') {
+    console.error('OpenAI error:', openaiResult.reason?.message || openaiResult.reason);
+  }
 
   return [
     { provider: 'openai', content: openaiText, error: openaiResult.status === 'rejected' ? openaiResult.reason?.message : null },
@@ -53,4 +71,36 @@ async function getResponses(userMessage, history) {
   ];
 }
 
-module.exports = { getResponses };
+/**
+ * 回答が完成した順に onResponse を呼ぶ。遅い方を待たない。
+ * @param {string} userMessage
+ * @param {Array} history
+ * @param {(r: { provider: string, content: string|null, error: string|null }) => void} onResponse
+ * @returns {Promise<void>}
+ */
+async function getResponsesStreaming(userMessage, history, onResponse) {
+  const messages = buildMessages(history);
+  const nextMessages = [...messages, { role: 'user', content: userMessage }];
+  const timeoutMs = parseInt(process.env.AI_TIMEOUT_MS || '30000', 10);
+
+  const emit = (provider, result) => {
+    const content = result.status === 'fulfilled' ? result.value : null;
+    const error = result.status === 'rejected' ? (result.reason?.message || String(result.reason)) : null;
+    if (error) console.error(`${provider} error:`, error);
+    onResponse({ provider, content, error });
+  };
+
+  const openaiPromise = withTimeout(callOpenAI(nextMessages), timeoutMs, 'OpenAI')
+    .then((v) => ({ status: 'fulfilled', value: v }))
+    .catch((e) => ({ status: 'rejected', reason: e }))
+    .then((r) => emit('openai', r));
+
+  const geminiPromise = withTimeout(callGemini(nextMessages), timeoutMs, 'Gemini')
+    .then((v) => ({ status: 'fulfilled', value: v }))
+    .catch((e) => ({ status: 'rejected', reason: e }))
+    .then((r) => emit('gemini', r));
+
+  await Promise.all([openaiPromise, geminiPromise]);
+}
+
+module.exports = { getResponses, getResponsesStreaming };
