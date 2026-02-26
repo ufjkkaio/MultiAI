@@ -73,10 +73,6 @@ async function getResponses(userMessage, history) {
 
 /**
  * 回答が完成した順に onResponse を呼ぶ。遅い方を待たない。
- * @param {string} userMessage
- * @param {Array} history
- * @param {(r: { provider: string, content: string|null, error: string|null }) => void} onResponse
- * @returns {Promise<void>}
  */
 async function getResponsesStreaming(userMessage, history, onResponse) {
   const messages = buildMessages(history);
