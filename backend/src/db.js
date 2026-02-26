@@ -2,7 +2,9 @@ const { Pool } = require('pg');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: true } : false,
+  ssl: process.env.NODE_ENV === 'production'
+    ? { rejectUnauthorized: false }  // Railway などの証明書チェーン対策
+    : false,
 });
 
 async function query(text, params) {
@@ -15,3 +17,4 @@ async function query(text, params) {
 }
 
 module.exports = { pool, query };
+
