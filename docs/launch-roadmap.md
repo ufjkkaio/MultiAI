@@ -78,7 +78,8 @@
      - **App 情報**でプライバシーポリシー URL・利用規約 URL（フェーズ2で用意したもの）を入力。  
      - 審査用のスクリーンショット・説明文・キーワードを用意して登録。
   3. **iOS 側**  
-     StoreKit で使う Product ID が、Connect で作成した ID と一致していることを確認。
+     StoreKit で使う Product ID が、Connect で作成した ID と一致していることを確認。  
+     （実装済みの Product ID: `multiAI.MultiAI.monthly`。Connect でサブスク商品を作るときはこの ID を使うこと。）
 
 ---
 
@@ -97,7 +98,7 @@
 
 - [ ] **1** Railway で DB・バックエンドをデプロイし、本番 URL を取得
 - [ ] **2** 利用規約・プライバシーポリシーを仕上げて掲載し、`AgreementView` の URL を差し替え
-- [ ] **3** StoreKit 2 で購入・復元・有効判定を実装し、バックエンドと同期
+- [x] **3** StoreKit 2 で購入・復元・有効判定を実装し、バックエンドと同期（Product ID: `multiAI.MultiAI.monthly`）
 - [ ] **4** App Store Connect でアプリ・サブスク商品・審査用情報を登録
 - [ ] **5** アーカイブ→提出→審査対応
 
