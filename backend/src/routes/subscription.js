@@ -1,6 +1,5 @@
 const express = require('express');
-const path = require('path');
-const { query } = require(path.join(__dirname, '..', 'db.js'));
+const { query } = require('../db');
 const { authMiddleware } = require('../auth');
 
 const router = express.Router();
