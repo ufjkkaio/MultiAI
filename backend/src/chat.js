@@ -1,74 +1,156 @@
-const OpenAI = require('openai').default;
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const config = require('./config');
+const express = require('express');
+const { query } = require('../db');
+const { getResponsesStreaming } = require('../chat');
+const config = require('../config');
+const { authMiddleware } = require('../auth');
 
-const openai = config.openai.apiKey
-  ? new OpenAI({ apiKey: config.openai.apiKey })
-  : null;
-const genAI = config.gemini.apiKey
-  ? new GoogleGenerativeAI(config.gemini.apiKey)
-  : null;
+const router = express.Router();
+router.use(authMiddleware);
 
-function buildMessages(history) {
-  return history.map((m) => ({
-    role: m.role === 'assistant' ? 'assistant' : 'user',
-    content: m.content,
-  }));
+function getCurrentPeriod() {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-async function callOpenAI(messages) {
-  if (!openai) throw new Error('OpenAI not configured');
-  const response = await openai.chat.completions.create({
-    model: config.openai.model,
-    messages: [{ role: 'system', content: 'You are a helpful assistant in a group chat. Reply concisely in the same language as the user.' }, ...messages],
-    max_tokens: 1024,
-  });
-  return response.choices[0]?.message?.content?.trim() || '';
+async function checkSubscription(userId) {
+  const r = await query(
+    'SELECT is_active FROM subscription_status WHERE user_id = $1',
+    [userId]
+  );
+  return r.rows[0]?.is_active === true;
 }
 
-async function callGemini(messages) {
-  if (!genAI) throw new Error('Gemini not configured');
-  const model = genAI.getGenerativeModel({ model: config.gemini.model });
-  const prompt = messages.map((m) => `${m.role}: ${m.content}`).join('\n') + '\nassistant:';
-  const result = await model.generateContent(prompt);
-  const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
-  return text?.trim() || '';
+async function checkAndIncrementUsage(userId) {
+  const period = getCurrentPeriod();
+  const r = await query(
+    'INSERT INTO usage_counts (user_id, period, count) VALUES ($1, $2, 1) ON CONFLICT (user_id, period) DO UPDATE SET count = usage_counts.count + 1 RETURNING count',
+    [userId, period]
+  );
+  return r.rows[0].count;
 }
 
-function withTimeout(promise, ms, label) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)
-    ),
-  ]);
-}
-
-async function getResponses(userMessage, history) {
-  const messages = buildMessages(history);
-  const nextMessages = [...messages, { role: 'user', content: userMessage }];
-
-  const timeoutMs = parseInt(process.env.AI_TIMEOUT_MS || '30000', 10); // デフォルト 30 秒
-
-  const [openaiResult, geminiResult] = await Promise.allSettled([
-    withTimeout(callOpenAI(nextMessages), timeoutMs, 'OpenAI'),
-    withTimeout(callGemini(nextMessages), timeoutMs, 'Gemini'),
-  ]);
-
-  const openaiText = openaiResult.status === 'fulfilled' ? openaiResult.value : null;
-  const geminiText = geminiResult.status === 'fulfilled' ? geminiResult.value : null;
-
-  if (geminiResult.status === 'rejected') {
-    console.error('Gemini error:', geminiResult.reason?.message || geminiResult.reason);
+router.get('/rooms', async (req, res) => {
+  try {
+    const r = await query(
+      'SELECT id, created_at FROM rooms WHERE user_id = $1 ORDER BY created_at DESC',
+      [req.userId]
+    );
+    res.json({ rooms: r.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to list rooms' });
   }
-  if (openaiResult.status === 'rejected') {
-    console.error('OpenAI error:', openaiResult.reason?.message || openaiResult.reason);
-  }
+});
 
-  return [
-    { provider: 'openai', content: openaiText, error: openaiResult.status === 'rejected' ? openaiResult.reason?.message : null },
-    { provider: 'gemini', content: geminiText, error: geminiResult.status === 'rejected' ? geminiResult.reason?.message : null },
-  ];
+router.post('/rooms', async (req, res) => {
+  try {
+    const r = await query(
+      'INSERT INTO rooms (user_id) VALUES ($1) RETURNING id, created_at',
+      [req.userId]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create room' });
+  }
+});
+
+router.get('/rooms/:roomId/messages', async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const check = await query(
+      'SELECT id FROM rooms WHERE id = $1 AND user_id = $2',
+      [roomId, req.userId]
+    );
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Room not found' });
+
+    const r = await query(
+      'SELECT id, role, provider, content, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC',
+      [roomId]
+    );
+    res.json({ messages: r.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to get messages' });
+  }
+});
+
+function sendSSE(res, event, data) {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-module.exports = { getResponses };
+router.post('/rooms/:roomId/messages', async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { content } = req.body;
+    if (!content || typeof content !== 'string' || !content.trim()) {
+      return res.status(400).json({ error: 'content required' });
+    }
+
+    const roomCheck = await query(
+      'SELECT id FROM rooms WHERE id = $1 AND user_id = $2',
+      [roomId, req.userId]
+    );
+    if (roomCheck.rows.length === 0) return res.status(404).json({ error: 'Room not found' });
+
+    const subscribed = await checkSubscription(req.userId);
+    if (!subscribed) {
+      return res.status(403).json({ error: 'Subscription required', code: 'SUBSCRIPTION_REQUIRED' });
+    }
+
+    const count = await checkAndIncrementUsage(req.userId);
+    if (count > config.monthlyMessageLimit) {
+      return res.status(429).json({
+        error: 'Monthly limit reached',
+        code: 'MONTHLY_LIMIT_REACHED',
+      });
+    }
+
+    const hist = await query(
+      'SELECT role, provider, content FROM messages WHERE room_id = $1 ORDER BY created_at ASC LIMIT 40',
+      [roomId]
+    );
+    const history = hist.rows.map((row) => ({
+      role: row.role,
+      content: row.content,
+    }));
+
+    await query(
+      'INSERT INTO messages (room_id, role, content) VALUES ($1, $2, $3)',
+      [roomId, 'user', content.trim()]
+    );
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    sendSSE(res, 'user', { content: content.trim() });
+
+    await getResponsesStreaming(content.trim(), history, async (r) => {
+      if (r.content) {
+        const q = await query(
+          'INSERT INTO messages (room_id, role, provider, content) VALUES ($1, $2, $3, $4) RETURNING id, role, provider, content, created_at',
+          [roomId, 'assistant', r.provider, r.content]
+        );
+        sendSSE(res, 'message', q.rows[0]);
+      } else if (r.error) {
+        sendSSE(res, 'error', { provider: r.provider, error: r.error });
+      }
+    });
+
+    sendSSE(res, 'done', {});
+    res.end();
+  } catch (err) {
+    console.error(err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to send message' });
+    } else {
+      sendSSE(res, 'error', { error: err.message });
+      res.end();
+    }
+  }
+});
+
+module.exports = router;
