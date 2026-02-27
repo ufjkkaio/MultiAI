@@ -28,7 +28,12 @@ async function callOpenAI(messages) {
 
 async function callGemini(messages) {
   if (!genAI) throw new Error('Gemini not configured');
-  const model = genAI.getGenerativeModel({ model: config.gemini.model });
+  const model = genAI.getGenerativeModel({
+    model: config.gemini.model,
+    generationConfig: {
+      thinkingConfig: { thinkingBudget: 0 },  // Thinking モードを無効化
+    },
+  });
   const prompt = messages.map((m) => `${m.role}: ${m.content}`).join('\n') + '\nassistant:';
   const result = await model.generateContent(prompt);
   const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
