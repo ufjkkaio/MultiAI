@@ -9,7 +9,7 @@ module.exports = {
   },
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
-    model: process.env.GEMINI_MODEL || 'gemini-3-flash-preview',
+    model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
   },
   monthlyMessageLimit: parseInt(process.env.MONTHLY_MESSAGE_LIMIT || '2000', 10),
 };
