@@ -2,7 +2,7 @@ import Foundation
 
 enum APIClient {
     static var baseURL: String {
-        ProcessInfo.processInfo.environment["API_BASE_URL"] ?? "http://localhost:3000"
+        ProcessInfo.processInfo.environment["API_BASE_URL"] ?? "https://multiai-production-ac5b.up.railway.app"
     }
     
     static func authHeader(_ token: String) -> [String: String] {

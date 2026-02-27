@@ -12,7 +12,7 @@ struct ChatView: View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 12) {
                         ForEach(messages) { msg in
                             MessageRow(message: msg)
                                 .id(msg.id)
@@ -22,7 +22,9 @@ struct ChatView: View {
                 }
                 .onChange(of: messages.count) { _, _ in
                     if let last = messages.last {
-                        withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                        }
                     }
                 }
             }
@@ -71,24 +73,26 @@ struct ChatView: View {
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let token = appState.authToken else { return }
-        
+
         guard let url = URL(string: APIClient.baseURL + "/chat/rooms/\(roomId)/messages") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.allHTTPHeaderFields = APIClient.authHeader(token)
         req.httpBody = try? JSONEncoder().encode(["content": text])
-        
+
         isSending = true
         inputText = ""
         errorMessage = nil
-        
+
         Task {
             do {
-                let (data, urlResponse) = try await URLSession.shared.data(for: req)
+                let (bytes, urlResponse) = try await URLSession.shared.bytes(for: req)
                 let http = urlResponse as? HTTPURLResponse
-                
+
                 if http?.statusCode == 403 {
+                    var data = Data()
+                    for try await byte in bytes { data.append(byte) }
                     let err = try? JSONDecoder().decode(ErrorBody.self, from: data)
                     await MainActor.run {
                         errorMessage = err?.error ?? "サブスクリプションが必要です"
@@ -97,30 +101,80 @@ struct ChatView: View {
                     return
                 }
                 if http?.statusCode == 429 {
+                    for try await _ in bytes {}
                     await MainActor.run {
                         errorMessage = "今月の利用上限に達しました"
                         isSending = false
                     }
                     return
                 }
-                
-                let res = try JSONDecoder().decode(SendMessageResponse.self, from: data)
-                await MainActor.run {
-                    messages.append(Message(
-                        id: UUID().uuidString,
-                        role: "user",
-                        provider: nil,
-                        content: res.userMessage.content,
-                        createdAt: nil
-                    ))
-                    messages.append(contentsOf: res.assistantMessages)
-                    isSending = false
+
+                guard http?.value(forHTTPHeaderField: "Content-Type")?.contains("text/event-stream") == true else {
+                    var data = Data()
+                    for try await byte in bytes { data.append(byte) }
+                    let res = try JSONDecoder().decode(SendMessageResponse.self, from: data)
+                    await MainActor.run {
+                        messages.append(Message(id: UUID().uuidString, role: "user", provider: nil, content: res.userMessage.content, createdAt: nil))
+                        messages.append(contentsOf: res.assistantMessages)
+                        isSending = false
+                    }
+                    return
                 }
+
+                var buffer = Data()
+                for try await byte in bytes {
+                    buffer.append(byte)
+                    while let str = String(data: buffer, encoding: .utf8),
+                          let range = str.range(of: "\n\n") {
+                        let event = String(str[..<range.lowerBound])
+                        let rest = String(str[range.upperBound...])
+                        buffer = Data(rest.utf8)
+                        await processSSEEvent(event)
+                    }
+                }
+                await MainActor.run { isSending = false }
             } catch {
                 await MainActor.run {
                     errorMessage = "送信に失敗しました"
                     isSending = false
                 }
+            }
+        }
+    }
+
+    private func processSSEEvent(_ raw: String) async {
+        var eventType = ""
+        var dataStr = ""
+        for line in raw.components(separatedBy: "\n") {
+            if line.hasPrefix("event: ") {
+                eventType = String(line.dropFirst(7))
+            } else if line.hasPrefix("data: ") {
+                dataStr = String(line.dropFirst(6))
+            }
+        }
+        guard let data = dataStr.data(using: .utf8) else { return }
+        await MainActor.run {
+            switch eventType {
+            case "user":
+                if let u = try? JSONDecoder().decode(UserMessagePart.self, from: data) {
+                    let newMsg = Message(id: UUID().uuidString, role: "user", provider: nil, content: u.content, createdAt: nil)
+                    messages = messages + [newMsg]
+                }
+            case "message":
+                let dec = JSONDecoder()
+                dec.keyDecodingStrategy = .convertFromSnakeCase
+                if let m = try? dec.decode(Message.self, from: data) {
+                    messages = messages + [m]  // 再代入で SwiftUI の更新を確実に
+                }
+            case "error":
+                if let e = try? JSONDecoder().decode(ProviderError.self, from: data) {
+                    errorMessage = "\(e.provider): \(e.error)"
+                }
+            case "done":
+                // SSE で届かないメッセージがある場合に備え、サーバーから再取得して確実に表示
+                loadMessages()
+            default:
+                break
             }
         }
     }
