@@ -32,7 +32,7 @@ async function checkAndIncrementUsage(userId) {
 router.get('/rooms', async (req, res) => {
   try {
     const r = await query(
-      'SELECT id, created_at FROM rooms WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT id, name, created_at FROM rooms WHERE user_id = $1 ORDER BY created_at DESC',
       [req.userId]
     );
     res.json({ rooms: r.rows });
@@ -44,14 +44,35 @@ router.get('/rooms', async (req, res) => {
 
 router.post('/rooms', async (req, res) => {
   try {
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
     const r = await query(
-      'INSERT INTO rooms (user_id) VALUES ($1) RETURNING id, created_at',
-      [req.userId]
+      'INSERT INTO rooms (user_id, name) VALUES ($1, $2) RETURNING id, name, created_at',
+      [req.userId, name || '']
     );
     res.status(201).json(r.rows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to create room' });
+  }
+});
+
+router.patch('/rooms/:roomId', async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    const check = await query(
+      'SELECT id FROM rooms WHERE id = $1 AND user_id = $2',
+      [roomId, req.userId]
+    );
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Room not found' });
+    const r = await query(
+      'UPDATE rooms SET name = $1 WHERE id = $2 RETURNING id, name, created_at',
+      [name, roomId]
+    );
+    res.json(r.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update room' });
   }
 });
 

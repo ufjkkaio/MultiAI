@@ -2,60 +2,158 @@ import SwiftUI
 
 struct ChatView: View {
     let roomId: String
+    var roomName: String?
+    var onRoomUpdated: (() -> Void)?
+
     @EnvironmentObject var appState: AppState
+    @State private var displayName: String
     @State private var messages: [Message] = []
     @State private var inputText = ""
     @State private var isSending = false
     @State private var errorMessage: String?
-    
+    @FocusState private var isInputFocused: Bool
+    @State private var showEditNameSheet = false
+
+    init(roomId: String, roomName: String? = nil, onRoomUpdated: (() -> Void)? = nil) {
+        self.roomId = roomId
+        self.roomName = roomName
+        self.onRoomUpdated = onRoomUpdated
+        _displayName = State(initialValue: Self.displayName(from: roomName, roomId: roomId))
+    }
+
+    private static func displayName(from name: String?, roomId: String) -> String {
+        if let n = name, !n.isEmpty { return n }
+        return String(roomId.prefix(8)) + "..."
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(messages) { msg in
-                            MessageRow(message: msg)
-                                .id(msg.id)
-                        }
-                    }
-                    .padding()
-                }
-                .onChange(of: messages.count) { _, _ in
-                    if let last = messages.last {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                            withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
-                        }
-                    }
-                }
-            }
-            
+            messagesArea
             if let err = errorMessage {
-                Text(err)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal)
+                errorBanner(err)
             }
-            
-            HStack(spacing: 8) {
-                TextField("メッセージ", text: $inputText, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...5)
-                Button("送信") {
-                    sendMessage()
-                }
-                .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
-            }
-            .padding()
+            inputArea
         }
+        .background(AppTheme.background)
+        .navigationTitle(displayName)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showEditNameSheet = true
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.body)
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+            }
+        }
+        .toolbarBackground(AppTheme.background, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .preferredColorScheme(.light)
         .onAppear { loadMessages() }
+        .sheet(isPresented: $showEditNameSheet) {
+            EditRoomNameSheet(
+                currentName: displayName,
+                onSave: { newName in
+                    displayName = newName.isEmpty ? String(roomId.prefix(8)) + "..." : newName
+                    showEditNameSheet = false
+                    updateRoomName(newName)
+                    onRoomUpdated?()
+                },
+                onCancel: { showEditNameSheet = false }
+            )
+        }
     }
-    
+
+    private var messagesArea: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    ForEach(messages) { msg in
+                        MessageRow(message: msg)
+                            .id(msg.id)
+                    }
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isInputFocused = false
+                }
+            }
+            .scrollDismissesKeyboard(.immediately)
+            .onChange(of: messages.count) { _, _ in
+                if let last = messages.last {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func errorBanner(_ text: String) -> some View {
+        HStack {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(AppTheme.errorRed)
+            Text(text)
+                .font(AppTheme.captionFont)
+                .foregroundStyle(AppTheme.errorRed)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(AppTheme.errorRed.opacity(0.15))
+    }
+
+    private var inputArea: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            TextField("メッセージを入力...", text: $inputText, axis: .vertical)
+                .focused($isInputFocused)
+                .textFieldStyle(.plain)
+                .padding(12)
+                .lineLimit(1...5)
+                .background(AppTheme.surface)
+                .foregroundStyle(AppTheme.textPrimary)
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(AppTheme.surfaceElevated, lineWidth: 1)
+                )
+
+            Button {
+                isInputFocused = false
+                sendMessage()
+            } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 36))
+                    .foregroundStyle(canSend ? AppTheme.accent : AppTheme.textSecondary.opacity(0.5))
+            }
+            .disabled(!canSend)
+        }
+        .padding()
+        .background(AppTheme.background)
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundStyle(AppTheme.surfaceElevated),
+            alignment: .top
+        )
+    }
+
+    private var canSend: Bool {
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending
+    }
+
     private func loadMessages() {
         guard let token = appState.authToken else { return }
         guard let url = URL(string: APIClient.baseURL + "/chat/rooms/\(roomId)/messages") else { return }
         var req = URLRequest(url: url)
         req.allHTTPHeaderFields = APIClient.authHeader(token)
-        
+
         Task {
             do {
                 let (data, _) = try await URLSession.shared.data(for: req)
@@ -69,7 +167,20 @@ struct ChatView: View {
             }
         }
     }
-    
+
+    private func updateRoomName(_ name: String) {
+        guard let token = appState.authToken else { return }
+        guard let url = URL(string: APIClient.baseURL + "/chat/rooms/\(roomId)") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PATCH"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.allHTTPHeaderFields = APIClient.authHeader(token)
+        req.httpBody = try? JSONEncoder().encode(["name": name])
+        Task {
+            _ = try? await URLSession.shared.data(for: req)
+        }
+    }
+
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let token = appState.authToken else { return }
@@ -164,14 +275,13 @@ struct ChatView: View {
                 let dec = JSONDecoder()
                 dec.keyDecodingStrategy = .convertFromSnakeCase
                 if let m = try? dec.decode(Message.self, from: data) {
-                    messages = messages + [m]  // 再代入で SwiftUI の更新を確実に
+                    messages = messages + [m]
                 }
             case "error":
                 if let e = try? JSONDecoder().decode(ProviderError.self, from: data) {
                     errorMessage = "\(e.provider): \(e.error)"
                 }
             case "done":
-                // SSE で届かないメッセージがある場合に備え、サーバーから再取得して確実に表示
                 loadMessages()
             default:
                 break
@@ -182,31 +292,64 @@ struct ChatView: View {
 
 struct MessageRow: View {
     let message: Message
-    
+
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: 10) {
             if message.role == "user" {
-                Spacer(minLength: 40)
+                Spacer(minLength: 60)
             } else {
-                Text(providerLabel)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                providerBadge
             }
+
             Text(message.content)
-                .padding(10)
-                .background(message.role == "user" ? Color.blue.opacity(0.2) : Color.gray.opacity(0.2))
-                .cornerRadius(12)
-            if message.role != "user" {
-                Spacer(minLength: 40)
+                .font(AppTheme.bodyFont)
+                .foregroundStyle(message.role == "user" ? .white : AppTheme.textPrimary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(message.role == "user" ? AppTheme.userBubble : AppTheme.aiBubble)
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(message.role == "user" ? Color.clear : AppTheme.surfaceElevated.opacity(0.5), lineWidth: 1)
+                )
+
+            if message.role == "user" {
+                Spacer(minLength: 0)
+            } else {
+                Spacer(minLength: 60)
             }
         }
+        .animation(.easeOut(duration: 0.2), value: message.id)
     }
-    
+
+    @ViewBuilder
+    private var providerBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: providerIcon)
+                .font(.caption2)
+            Text(providerLabel)
+                .font(AppTheme.captionFont)
+        }
+        .foregroundStyle(AppTheme.textSecondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(AppTheme.surface)
+        .clipShape(Capsule())
+    }
+
     private var providerLabel: String {
         switch message.provider {
         case "openai": return "ChatGPT"
         case "gemini": return "Gemini"
         default: return ""
+        }
+    }
+
+    private var providerIcon: String {
+        switch message.provider {
+        case "openai": return "sparkles"
+        case "gemini": return "bolt.fill"
+        default: return "bubble.left.fill"
         }
     }
 }
@@ -217,4 +360,43 @@ struct MessagesResponse: Codable {
 
 struct ErrorBody: Codable {
     let error: String?
+}
+
+struct EditRoomNameSheet: View {
+    @State private var name: String
+    let onSave: (String) -> Void
+    let onCancel: () -> Void
+
+    init(currentName: String, onSave: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+        _name = State(initialValue: currentName)
+        self.onSave = onSave
+        self.onCancel = onCancel
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                TextField("ルーム名", text: $name)
+                    .textFieldStyle(.roundedBorder)
+                    .padding(.horizontal)
+                Spacer()
+            }
+            .padding(.top, 24)
+            .navigationTitle("ルーム名を編集")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") { onCancel() }
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        onSave(name.trimmingCharacters(in: .whitespacesAndNewlines))
+                    }
+                    .fontWeight(.semibold)
+                    .foregroundStyle(AppTheme.accent)
+                }
+            }
+        }
+    }
 }

@@ -12,7 +12,12 @@ enum APIClient {
 
 struct Room: Codable, Identifiable, Hashable {
     let id: String
+    let name: String?
     let createdAt: String?
+    enum CodingKeys: String, CodingKey {
+        case id, name
+        case createdAt = "created_at"
+    }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
     static func == (l: Room, r: Room) -> Bool { l.id == r.id }
 }

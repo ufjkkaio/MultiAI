@@ -4,32 +4,58 @@ import AuthenticationServices
 struct AuthView: View {
     @EnvironmentObject var appState: AppState
     @State private var errorMessage: String?
-    
+
     var body: some View {
-        VStack(spacing: 20) {
-            Text("MultiAI")
-                .font(.title)
-            Text("Sign in with Apple でログイン")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            
-            SignInWithAppleButton(.signIn) { request in
-                request.requestedScopes = []
-            } onCompletion: { result in
-                handleSignIn(result)
-            }
-            .signInWithAppleButtonStyle(.black)
-            .frame(height: 50)
-            .padding(.horizontal, 40)
-            
-            if let msg = errorMessage {
-                Text(msg)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+        ZStack {
+            AppTheme.background.ignoresSafeArea()
+
+            VStack(spacing: 32) {
+                Spacer()
+
+                VStack(spacing: 12) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 56))
+                        .foregroundStyle(AppTheme.accent)
+
+                    Text("MultiAI")
+                        .font(.system(size: 32, design: .rounded))
+                        .fontWeight(.bold)
+                        .foregroundStyle(AppTheme.textPrimary)
+
+                    Text("ChatGPT と Gemini に同時に質問できる\nグループチャットアプリ")
+                        .font(AppTheme.bodyFont)
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                Spacer()
+
+                VStack(spacing: 16) {
+                    SignInWithAppleButton(.signIn) { request in
+                        request.requestedScopes = []
+                    } onCompletion: { result in
+                        handleSignIn(result)
+                    }
+                    .signInWithAppleButtonStyle(.black)
+                    .frame(height: 52)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+
+                    if let msg = errorMessage {
+                        Text(msg)
+                            .font(AppTheme.captionFont)
+                            .foregroundStyle(AppTheme.errorRed)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
+                }
+                .padding(.horizontal, 32)
+                .padding(.bottom, 48)
             }
         }
+        .preferredColorScheme(.light)
     }
-    
+
     private func handleSignIn(_ result: Result<ASAuthorization, Error>) {
         switch result {
         case .success(let auth):
@@ -46,14 +72,14 @@ struct AuthView: View {
             errorMessage = err.localizedDescription
         }
     }
-    
+
     private func loginWithBackend(identityToken: String) async {
         guard let url = URL(string: APIClient.baseURL + "/auth/apple") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONEncoder().encode(["identityToken": identityToken])
-        
+
         do {
             let (data, _) = try await URLSession.shared.data(for: req)
             let res = try JSONDecoder().decode(AuthResponse.self, from: data)
