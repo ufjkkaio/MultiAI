@@ -77,6 +77,8 @@ router.get('/rooms/:roomId/messages', async (req, res) => {
 
 function sendSSE(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  // プロキシのバッファリング対策: flush があれば呼ぶ（compression 等で利用可）
+  if (typeof res.flush === 'function') res.flush();
 }
 
 router.post('/rooms/:roomId/messages', async (req, res) => {
@@ -125,6 +127,9 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
+
+    // プロキシのバッファリング対策: 先頭にパディングを送って即フラッシュさせる
+    res.write(': ' + ' '.repeat(2046) + '\n\n');
 
     sendSSE(res, 'user', { content: content.trim() });
 
