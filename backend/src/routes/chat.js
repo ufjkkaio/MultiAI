@@ -1,6 +1,6 @@
 const express = require('express');
 const { query } = require('../db');
-const { getResponsesStreamingRealtime } = require('../chat');
+const { getResponsesStreamingRealtime, parseProviders } = require('../chat');
 const config = require('../config');
 const { authMiddleware } = require('../auth');
 
@@ -32,10 +32,14 @@ async function checkAndIncrementUsage(userId) {
 router.get('/rooms', async (req, res) => {
   try {
     const r = await query(
-      'SELECT id, name, created_at FROM rooms WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT id, name, COALESCE(selected_providers, \'["openai","gemini"]\') AS selected_providers, created_at FROM rooms WHERE user_id = $1 ORDER BY created_at DESC',
       [req.userId]
     );
-    res.json({ rooms: r.rows });
+    const rooms = r.rows.map((row) => ({
+      ...row,
+      selected_providers: parseProviders(row.selected_providers),
+    }));
+    res.json({ rooms });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to list rooms' });
@@ -46,10 +50,11 @@ router.post('/rooms', async (req, res) => {
   try {
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
     const r = await query(
-      'INSERT INTO rooms (user_id, name) VALUES ($1, $2) RETURNING id, name, created_at',
+      'INSERT INTO rooms (user_id, name) VALUES ($1, $2) RETURNING id, name, COALESCE(selected_providers, \'["openai","gemini"]\') AS selected_providers, created_at',
       [req.userId, name || '']
     );
-    res.status(201).json(r.rows[0]);
+    const row = r.rows[0];
+    res.status(201).json({ ...row, selected_providers: parseProviders(row.selected_providers) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to create room' });
@@ -59,17 +64,41 @@ router.post('/rooms', async (req, res) => {
 router.patch('/rooms/:roomId', async (req, res) => {
   try {
     const { roomId } = req.params;
-    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : undefined;
+    const selectedProviders = req.body?.selected_providers;
     const check = await query(
       'SELECT id FROM rooms WHERE id = $1 AND user_id = $2',
       [roomId, req.userId]
     );
     if (check.rows.length === 0) return res.status(404).json({ error: 'Room not found' });
+
+    const updates = [];
+    const values = [];
+    let idx = 1;
+    if (name !== undefined) {
+      updates.push(`name = $${idx++}`);
+      values.push(name);
+    }
+    if (selectedProviders !== undefined) {
+      const arr = Array.isArray(selectedProviders)
+        ? selectedProviders
+        : parseProviders(selectedProviders);
+      const valid = arr.filter((p) => p === 'openai' || p === 'gemini');
+      updates.push(`selected_providers = $${idx++}`);
+      values.push(JSON.stringify(valid.length > 0 ? valid : ['openai', 'gemini']));
+    }
+    if (updates.length === 0) {
+      const r = await query('SELECT id, name, COALESCE(selected_providers, \'["openai","gemini"]\') AS selected_providers, created_at FROM rooms WHERE id = $1', [roomId]);
+      const row = r.rows[0];
+      return res.json({ ...row, selected_providers: parseProviders(row.selected_providers) });
+    }
+    values.push(roomId);
     const r = await query(
-      'UPDATE rooms SET name = $1 WHERE id = $2 RETURNING id, name, created_at',
-      [name, roomId]
+      `UPDATE rooms SET ${updates.join(', ')} WHERE id = $${idx} RETURNING id, name, COALESCE(selected_providers, '["openai","gemini"]') AS selected_providers, created_at`,
+      values
     );
-    res.json(r.rows[0]);
+    const row = r.rows[0];
+    res.json({ ...row, selected_providers: parseProviders(row.selected_providers) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update room' });
@@ -105,16 +134,20 @@ function sendSSE(res, event, data) {
 router.post('/rooms/:roomId/messages', async (req, res) => {
   try {
     const { roomId } = req.params;
-    const { content } = req.body;
+    const { content, providers: bodyProviders } = req.body;
     if (!content || typeof content !== 'string' || !content.trim()) {
       return res.status(400).json({ error: 'content required' });
     }
 
     const roomCheck = await query(
-      'SELECT id FROM rooms WHERE id = $1 AND user_id = $2',
+      'SELECT id, COALESCE(selected_providers, \'["openai","gemini"]\') AS selected_providers FROM rooms WHERE id = $1 AND user_id = $2',
       [roomId, req.userId]
     );
     if (roomCheck.rows.length === 0) return res.status(404).json({ error: 'Room not found' });
+
+    const providers = Array.isArray(bodyProviders) && bodyProviders.length > 0
+      ? bodyProviders.filter((p) => p === 'openai' || p === 'gemini')
+      : parseProviders(roomCheck.rows[0].selected_providers);
 
     const subscribed = await checkSubscription(req.userId);
     if (!subscribed) {
@@ -155,6 +188,7 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
     sendSSE(res, 'user', { content: content.trim() });
 
     await getResponsesStreamingRealtime(content.trim(), history, {
+      providers,
       onChunk: (provider, delta) => {
         sendSSE(res, 'chunk', { provider, delta });
       },

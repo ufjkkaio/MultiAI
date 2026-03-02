@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS rooms (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name TEXT DEFAULT '',
+  selected_providers TEXT DEFAULT '["openai","gemini"]',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

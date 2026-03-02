@@ -148,11 +148,26 @@ async function getResponsesStreaming(userMessage, history, onResponse) {
   await Promise.all([openaiPromise, geminiPromise]);
 }
 
+const DEFAULT_PROVIDERS = ['openai', 'gemini'];
+
+function parseProviders(val) {
+  if (Array.isArray(val) && val.length > 0) return val;
+  if (typeof val === 'string') {
+    try {
+      const arr = JSON.parse(val);
+      if (Array.isArray(arr) && arr.length > 0) return arr;
+    } catch (_) {}
+  }
+  return DEFAULT_PROVIDERS;
+}
+
 /**
  * リアルタイムストリーミング: チャンクごとに onChunk(provider, delta) を呼ぶ。
  * 各プロバイダー完了時に onDone(provider, fullContent) を呼ぶ。
+ * @param {string[]} [providers] - 呼び出すプロバイダー。省略時は両方。
  */
-async function getResponsesStreamingRealtime(userMessage, history, { onChunk, onDone }) {
+async function getResponsesStreamingRealtime(userMessage, history, { providers = DEFAULT_PROVIDERS, onChunk, onDone }) {
+  const effective = Array.isArray(providers) && providers.length > 0 ? providers : DEFAULT_PROVIDERS;
   const messages = buildMessages(history);
   const nextMessages = [...messages, { role: 'user', content: userMessage }];
   const timeoutMs = parseInt(process.env.AI_TIMEOUT_MS || '30000', 10);
@@ -185,7 +200,10 @@ async function getResponsesStreamingRealtime(userMessage, history, { onChunk, on
     }
   };
 
-  await Promise.all([runOpenAI(), runGemini()]);
+  const tasks = [];
+  if (effective.includes('openai')) tasks.push(runOpenAI());
+  if (effective.includes('gemini')) tasks.push(runGemini());
+  await Promise.all(tasks);
 }
 
-module.exports = { getResponses, getResponsesStreaming, getResponsesStreamingRealtime };
+module.exports = { getResponses, getResponsesStreaming, getResponsesStreamingRealtime, parseProviders };

@@ -39,6 +39,7 @@ Node.js + Express + PostgreSQL。チャットAPI・認証・サブスク状態�
 4. バックエンドのサービスで「Variables」を開き、上記の環境変数を設定。`DATABASE_URL` は PostgreSQL を追加すると参照が自動で入る。
 5. GitHub と連携して `backend/` をデプロイするか、`railway up` でアップロード。
 6. PostgreSQL の「Data」→ 「Query」で `schema.sql` の内容を実行する（初回のみ）。
+7. 既存 DB の場合は、`migrations/001_add_selected_providers.sql` を実行して `selected_providers` カラムを追加する。
 
 ## API 概要
 
@@ -46,6 +47,7 @@ Node.js + Express + PostgreSQL。チャットAPI・認証・サブスク状態�
 - `GET /chat/rooms` — 認証必須。ルーム一覧。
 - `POST /chat/rooms` — 認証必須。ルーム作成。
 - `GET /chat/rooms/:roomId/messages` — 認証必須。メッセージ一覧。
-- `POST /chat/rooms/:roomId/messages` — 認証必須。body: `{ "content": "..." }`。サブスク有効かつ月上限内のみ成功。
+- `POST /chat/rooms/:roomId/messages` — 認証必須。body: `{ "content": "...", "providers"?: ["openai","gemini"] }`。サブスク有効かつ月上限内のみ成功。
+- `PATCH /chat/rooms/:roomId` — 認証必須。body: `{ "name"?: "...", "selected_providers"?: ["openai","gemini"] }`。
 - `GET /subscription/status` — 認証必須。`{ isActive: true/false }`
 - `POST /subscription/status` — 認証必須。body: `{ "isActive": true }`。アプリが購入状態を連携するときに使用。
