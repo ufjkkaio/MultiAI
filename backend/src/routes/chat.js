@@ -1,6 +1,6 @@
 const express = require('express');
 const { query } = require('../db');
-const { getResponsesStreaming } = require('../chat');
+const { getResponsesStreamingRealtime } = require('../chat');
 const config = require('../config');
 const { authMiddleware } = require('../auth');
 
@@ -154,16 +154,23 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
 
     sendSSE(res, 'user', { content: content.trim() });
 
-    await getResponsesStreaming(content.trim(), history, async (r) => {
-      if (r.content) {
-        const q = await query(
-          'INSERT INTO messages (room_id, role, provider, content) VALUES ($1, $2, $3, $4) RETURNING id, role, provider, content, created_at',
-          [roomId, 'assistant', r.provider, r.content]
-        );
-        sendSSE(res, 'message', q.rows[0]);
-      } else if (r.error) {
-        sendSSE(res, 'error', { provider: r.provider, error: r.error });
-      }
+    await getResponsesStreamingRealtime(content.trim(), history, {
+      onChunk: (provider, delta) => {
+        sendSSE(res, 'chunk', { provider, delta });
+      },
+      onDone: async (provider, content, error) => {
+        if (error) {
+          sendSSE(res, 'error', { provider, error });
+          return;
+        }
+        if (content) {
+          const q = await query(
+            'INSERT INTO messages (room_id, role, provider, content) VALUES ($1, $2, $3, $4) RETURNING id, role, provider, content, created_at',
+            [roomId, 'assistant', provider, content]
+          );
+          sendSSE(res, 'message', q.rows[0]);
+        }
+      },
     });
 
     sendSSE(res, 'done', {});

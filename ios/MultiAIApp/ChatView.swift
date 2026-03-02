@@ -13,6 +13,7 @@ struct ChatView: View {
     @State private var errorMessage: String?
     @FocusState private var isInputFocused: Bool
     @State private var showEditNameSheet = false
+    @State private var scrollTrigger = UUID()
 
     init(roomId: String, roomName: String? = nil, onRoomUpdated: (() -> Void)? = nil) {
         self.roomId = roomId
@@ -35,16 +36,21 @@ struct ChatView: View {
             inputArea
         }
         .background(AppTheme.background)
-        .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showEditNameSheet = true
-                } label: {
-                    Image(systemName: "pencil")
-                        .font(.body)
-                        .foregroundStyle(AppTheme.textSecondary)
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 4) {
+                    Text(displayName)
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textPrimary)
+                    Button {
+                        showEditNameSheet = true
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 11))
+                            .foregroundStyle(AppTheme.textSecondary.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -58,8 +64,10 @@ struct ChatView: View {
                 onSave: { newName in
                     displayName = newName.isEmpty ? String(roomId.prefix(8)) + "..." : newName
                     showEditNameSheet = false
-                    updateRoomName(newName)
-                    onRoomUpdated?()
+                    Task {
+                        await updateRoomName(newName)
+                        onRoomUpdated?()
+                    }
                 },
                 onCancel: { showEditNameSheet = false }
             )
@@ -84,13 +92,19 @@ struct ChatView: View {
             }
             .scrollDismissesKeyboard(.immediately)
             .onChange(of: messages.count) { _, _ in
-                if let last = messages.last {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
-                    }
-                }
+                scrollToLast(proxy: proxy)
+            }
+            .onChange(of: scrollTrigger) { _, _ in
+                scrollToLast(proxy: proxy)
+            }
+        }
+    }
+
+    private func scrollToLast(proxy: ScrollViewProxy) {
+        guard let last = messages.last else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo(last.id, anchor: .bottom)
             }
         }
     }
@@ -168,7 +182,7 @@ struct ChatView: View {
         }
     }
 
-    private func updateRoomName(_ name: String) {
+    private func updateRoomName(_ name: String) async {
         guard let token = appState.authToken else { return }
         guard let url = URL(string: APIClient.baseURL + "/chat/rooms/\(roomId)") else { return }
         var req = URLRequest(url: url)
@@ -176,9 +190,7 @@ struct ChatView: View {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.allHTTPHeaderFields = APIClient.authHeader(token)
         req.httpBody = try? JSONEncoder().encode(["name": name])
-        Task {
-            _ = try? await URLSession.shared.data(for: req)
-        }
+        _ = try? await URLSession.shared.data(for: req)
     }
 
     private func sendMessage() {
@@ -271,11 +283,25 @@ struct ChatView: View {
                     let newMsg = Message(id: UUID().uuidString, role: "user", provider: nil, content: u.content, createdAt: nil)
                     messages = messages + [newMsg]
                 }
+            case "chunk":
+                if let c = try? JSONDecoder().decode(ChunkEvent.self, from: data), !c.delta.isEmpty {
+                    let streamId = "streaming-\(c.provider)"
+                    if let idx = messages.firstIndex(where: { $0.id == streamId }) {
+                        let cur = messages[idx]
+                        let updated = Message(id: streamId, role: "assistant", provider: c.provider, content: cur.content + c.delta, createdAt: nil)
+                        messages = messages.enumerated().map { $0.offset == idx ? updated : $0.element }
+                    } else {
+                        let newMsg = Message(id: streamId, role: "assistant", provider: c.provider, content: c.delta, createdAt: nil)
+                        messages = messages + [newMsg]
+                    }
+                    scrollTrigger = UUID()
+                }
             case "message":
                 let dec = JSONDecoder()
                 dec.keyDecodingStrategy = .convertFromSnakeCase
                 if let m = try? dec.decode(Message.self, from: data) {
-                    messages = messages + [m]
+                    let streamId = "streaming-\(m.provider ?? "")"
+                    messages = messages.filter { $0.id != streamId } + [m]
                 }
             case "error":
                 if let e = try? JSONDecoder().decode(ProviderError.self, from: data) {

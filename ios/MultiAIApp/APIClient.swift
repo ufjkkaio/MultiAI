@@ -44,3 +44,8 @@ struct ProviderError: Codable {
     let provider: String
     let error: String
 }
+
+struct ChunkEvent: Codable {
+    let provider: String
+    let delta: String
+}
