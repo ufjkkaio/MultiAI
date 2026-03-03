@@ -4,10 +4,14 @@ struct ChatRoomListView: View {
     @EnvironmentObject var appState: AppState
     @State private var rooms: [Room] = []
     @State private var showCreateSheet = false
+    @State private var isLoading = true
+    @State private var roomToDelete: Room?
 
     var body: some View {
         Group {
-            if rooms.isEmpty {
+            if isLoading {
+                loadingView
+            } else if rooms.isEmpty {
                 emptyState
             } else {
                 roomList
@@ -25,6 +29,27 @@ struct ChatRoomListView: View {
                 onCancel: { showCreateSheet = false }
             )
         }
+        .alert("ルームを削除", isPresented: Binding(
+            get: { roomToDelete != nil },
+            set: { if !$0 { roomToDelete = nil } }
+        )) {
+            Button("キャンセル", role: .cancel) { roomToDelete = nil }
+            Button("削除", role: .destructive) {
+                if let room = roomToDelete {
+                    deleteRoom(room)
+                    roomToDelete = nil
+                }
+            }
+        } message: {
+            Text("このルームと会話履歴は削除され、復元できません。よろしいですか？")
+        }
+    }
+
+    private var loadingView: some View {
+        ProgressView()
+            .scaleEffect(1.4)
+            .tint(AppTheme.textSecondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var emptyState: some View {
@@ -85,6 +110,13 @@ struct ChatRoomListView: View {
                 }
                 .listRowBackground(AppTheme.surface)
                 .listRowSeparatorTint(AppTheme.surfaceElevated)
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        roomToDelete = room
+                    } label: {
+                        Label("削除", systemImage: "trash")
+                    }
+                }
             }
         }
         .listStyle(.plain)
@@ -130,21 +162,38 @@ struct ChatRoomListView: View {
         return f.string(from: d)
     }
 
+    private func deleteRoom(_ room: Room) {
+        guard let token = appState.authToken else { return }
+        guard let url = URL(string: APIClient.baseURL + "/chat/rooms/\(room.id)") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        req.allHTTPHeaderFields = APIClient.authHeader(token)
+        Task {
+            _ = try? await URLSession.shared.data(for: req)
+            await MainActor.run { loadRooms() }
+        }
+    }
+
     private func loadRooms() {
         guard let token = appState.authToken else { return }
         guard let url = URL(string: APIClient.baseURL + "/chat/rooms") else { return }
         var req = URLRequest(url: url)
         req.allHTTPHeaderFields = APIClient.authHeader(token)
 
+        isLoading = true
         Task {
             do {
                 let (data, _) = try await URLSession.shared.data(for: req)
                 let res = try JSONDecoder().decode(RoomsResponse.self, from: data)
                 await MainActor.run {
                     rooms = res.rooms
+                    isLoading = false
                 }
             } catch {
-                await MainActor.run { rooms = [] }
+                await MainActor.run {
+                    rooms = []
+                    isLoading = false
+                }
             }
         }
     }

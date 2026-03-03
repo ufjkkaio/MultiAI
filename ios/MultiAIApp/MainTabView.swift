@@ -6,9 +6,20 @@ struct MainTabView: View {
     @State private var showSideMenu = false
     @State private var showPaywall = false
 
+    private var openMenuSwipe: some Gesture {
+        DragGesture(minimumDistance: 20)
+            .onEnded { value in
+                let fromLeft = value.startLocation.x < 40
+                let swipedRight = value.translation.width > 40
+                if fromLeft && swipedRight {
+                    showSideMenu = true
+                }
+            }
+    }
+
     var body: some View {
         NavigationStack {
-            ZStack {
+            ZStack(alignment: .leading) {
                 ChatRoomListView()
                     .navigationTitle("チャット")
                     .navigationBarTitleDisplayMode(.inline)
@@ -35,6 +46,12 @@ struct MainTabView: View {
                     }
                     .toolbarBackground(AppTheme.background, for: .navigationBar)
                     .toolbarBackground(.visible, for: .navigationBar)
+
+                Color.clear
+                    .frame(width: 44)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .gesture(openMenuSwipe)
             }
             .background(AppTheme.background)
             .preferredColorScheme(.light)

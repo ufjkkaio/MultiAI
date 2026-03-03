@@ -105,6 +105,21 @@ router.patch('/rooms/:roomId', async (req, res) => {
   }
 });
 
+router.delete('/rooms/:roomId', async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const r = await query(
+      'DELETE FROM rooms WHERE id = $1 AND user_id = $2 RETURNING id',
+      [roomId, req.userId]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'Room not found' });
+    res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete room' });
+  }
+});
+
 router.get('/rooms/:roomId/messages', async (req, res) => {
   try {
     const { roomId } = req.params;
