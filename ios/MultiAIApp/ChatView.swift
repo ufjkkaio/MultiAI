@@ -524,10 +524,6 @@ struct MessagesResponse: Codable {
     let messages: [Message]
 }
 
-struct ErrorBody: Codable {
-    let error: String?
-}
-
 struct EditRoomNameSheet: View {
     @State private var name: String
     let onSave: (String) -> Void

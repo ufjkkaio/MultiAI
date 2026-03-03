@@ -352,6 +352,17 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
     const userMessageRow = insertResult.rows[0];
     const attachmentsForClient = userMessageRow.attachments || [];
 
+    if (req.body.prepare_only === true) {
+      return res.json({
+        user_message: {
+          id: userMessageRow.id,
+          content: userMessageRow.content,
+          attachments: Array.isArray(attachmentsForClient) ? attachmentsForClient : [],
+          created_at: userMessageRow.created_at,
+        },
+      });
+    }
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -390,6 +401,102 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
           const q = await query(
             'INSERT INTO messages (room_id, role, provider, content, expanded_from_id) VALUES ($1, $2, $3, $4, NULL) RETURNING id, role, provider, content, expanded_from_id, created_at',
             [roomId, 'assistant', provider, content]
+          );
+          sendSSE(res, 'message', q.rows[0]);
+        }
+      },
+    });
+
+    sendSSE(res, 'done', {});
+    res.end();
+  } catch (err) {
+    console.error(err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to send message' });
+    } else {
+      sendSSE(res, 'error', { error: err.message });
+      res.end();
+    }
+  }
+});
+
+/** 1プロバイダー専用ストリーム（接続を分けてプロキシのバッファを避け、完了順に届ける） */
+router.get('/rooms/:roomId/messages/stream', async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const messageId = req.query.message_id;
+    const provider = (req.query.provider || '').toLowerCase();
+    if (!messageId || typeof messageId !== 'string' || !['openai', 'gemini'].includes(provider)) {
+      return res.status(400).json({ error: 'message_id and provider (openai or gemini) required' });
+    }
+
+    const roomCheck = await query(
+      'SELECT id, user_id FROM rooms WHERE id = $1 AND user_id = $2',
+      [roomId, req.userId]
+    );
+    if (roomCheck.rows.length === 0) return res.status(404).json({ error: 'Room not found' });
+
+    const msgRows = await query(
+      'SELECT id, room_id, role, content, attachments, created_at FROM messages WHERE id = $1 AND room_id = $2 AND role = $3',
+      [messageId, roomId, 'user']
+    );
+    if (msgRows.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
+    const msg = msgRows.rows[0];
+
+    const hist = await query(
+      'SELECT role, content FROM messages WHERE room_id = $1 AND created_at < $2 ORDER BY created_at ASC LIMIT 40',
+      [roomId, msg.created_at]
+    );
+    const history = hist.rows.map((r) => ({ role: r.role, content: r.content }));
+
+    const rawAttachments = msg.attachments || [];
+    const imageList = Array.isArray(rawAttachments)
+      ? rawAttachments.filter((a) => a && a.media_type && ALLOWED_IMAGE_TYPES.includes(String(a.media_type).toLowerCase()))
+          .map((a) => ({ base64: a.base64, media_type: a.media_type }))
+      : [];
+    const fileList = Array.isArray(rawAttachments)
+      ? rawAttachments.filter((a) => a && a.media_type && ALLOWED_FILE_TYPES.includes(String(a.media_type).toLowerCase()))
+          .map((a) => ({ base64: a.base64, media_type: a.media_type, filename: a.filename || 'file' }))
+      : [];
+
+    const contentForAI = (msg.content || '').trim() + (await buildFileTextSuffix(fileList));
+    const imagesForAI = await resizeImagesForAI(imageList);
+
+    let profile = '';
+    let responseStyle = '';
+    const prefs = await query('SELECT profile, response_style FROM user_preferences WHERE user_id = $1', [req.userId]);
+    if (prefs.rows.length > 0) {
+      profile = prefs.rows[0].profile || '';
+      responseStyle = prefs.rows[0].response_style || '';
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+    res.write(': ' + ' '.repeat(2046) + '\n\n');
+
+    const hasAttachments = imageList.length > 0 || fileList.length > 0;
+    await getResponsesStreamingRealtime(contentForAI, history, {
+      providers: [provider],
+      profile,
+      responseStyle,
+      images: imagesForAI,
+      timeoutMs: hasAttachments ? 90000 : undefined,
+      onChunk: (p, delta) => {
+        if (delta === 'openai' || delta === 'gemini') return;
+        sendSSE(res, 'chunk', { provider: p, delta });
+      },
+      onDone: async (p, content, error) => {
+        if (error) {
+          sendSSE(res, 'error', { provider: p, error });
+          return;
+        }
+        if (content) {
+          const q = await query(
+            'INSERT INTO messages (room_id, role, provider, content, expanded_from_id) VALUES ($1, $2, $3, $4, NULL) RETURNING id, role, provider, content, expanded_from_id, created_at',
+            [roomId, 'assistant', p, content]
           );
           sendSSE(res, 'message', q.rows[0]);
         }

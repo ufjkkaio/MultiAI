@@ -22,7 +22,7 @@ struct Room: Codable, Identifiable, Hashable {
     static func == (l: Room, r: Room) -> Bool { l.id == r.id }
 }
 
-struct ImageAttachment: Codable {
+struct ImageAttachment: Codable, Sendable {
     let base64: String
     let mediaType: String
     enum CodingKeys: String, CodingKey {
@@ -31,7 +31,7 @@ struct ImageAttachment: Codable {
     }
 }
 
-struct Message: Codable, Identifiable {
+struct Message: Codable, Identifiable, Sendable {
     let id: String
     let role: String
     let provider: String?
@@ -57,14 +57,18 @@ struct Message: Codable, Identifiable {
     }
 }
 
-struct SendMessageResponse: Codable {
+struct SendMessageResponse: Codable, Sendable {
     let userMessage: UserMessagePart
     let assistantMessages: [Message]
     let errors: [ProviderError]?
 }
 
-struct UserMessagePart: Codable {
+struct UserMessagePart: Codable, Sendable {
     let content: String
+}
+
+struct ErrorBody: Codable, Sendable {
+    let error: String?
 }
 
 struct UserMessageSSE: Codable {
@@ -89,7 +93,7 @@ struct UserMessageSSE: Codable {
     }
 }
 
-struct ProviderError: Codable {
+struct ProviderError: Codable, Sendable {
     let provider: String
     let error: String
 }
