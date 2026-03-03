@@ -135,7 +135,18 @@ router.get('/rooms/:roomId/messages', async (req, res) => {
     );
     const messages = r.rows.map((row) => {
       const attachments = Array.isArray(row.attachments) ? row.attachments : [];
-      return { ...row, attachments };
+      const createdAt = row.created_at instanceof Date
+        ? row.created_at.toISOString()
+        : (row.created_at ?? null);
+      return {
+        id: row.id,
+        role: row.role,
+        provider: row.provider ?? null,
+        content: row.content ?? '',
+        expanded_from_id: row.expanded_from_id ?? null,
+        created_at: createdAt,
+        attachments,
+      };
     });
     res.json({ messages });
   } catch (err) {

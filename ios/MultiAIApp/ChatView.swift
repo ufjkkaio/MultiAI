@@ -253,7 +253,9 @@ struct ChatView: View {
         Task {
             do {
                 let (data, _) = try await URLSession.shared.data(for: req)
-                let res = try JSONDecoder().decode(MessagesResponse.self, from: data)
+                let dec = JSONDecoder()
+                dec.keyDecodingStrategy = .convertFromSnakeCase
+                let res = try dec.decode(MessagesResponse.self, from: data)
                 await MainActor.run {
                     messages = res.messages
                     errorMessage = nil
