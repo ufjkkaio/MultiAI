@@ -1,4 +1,5 @@
 const express = require('express');
+const compression = require('compression');
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../secrets/.env') });
 
@@ -9,6 +10,8 @@ const subscriptionRoutes = require('./routes/subscription');
 const userRoutes = require('./routes/user');
 
 const app = express();
+// res.flush() を有効にするため（SSE のチャンクを溜めずに即送信する）
+app.use(compression());
 // 写真・PDF の base64 送信用に body 上限を拡大（デフォルト 100kb では足りない）
 app.use(express.json({ limit: '15mb' }));
 
