@@ -46,8 +46,7 @@ final class SubscriptionManager: ObservableObject {
             let (data, _) = try await URLSession.shared.data(for: req)
             let res = try JSONDecoder().decode(SubscriptionStatusResponse.self, from: data)
             await MainActor.run {
-                appState.isSubscribed = res.isActive
-                isActive = res.isActive
+                applySubscriptionState(res.isActive)
             }
         } catch {}
     }
@@ -128,9 +127,16 @@ final class SubscriptionManager: ObservableObject {
         
         _ = try? await URLSession.shared.data(for: req)
         await MainActor.run {
-            appState.isSubscribed = active
-            isActive = active
+            applySubscriptionState(active)
         }
+    }
+
+    /// サブスク状態を反映し、次回起動用にキャッシュする（一瞬の王冠表示を防ぐ）
+    private func applySubscriptionState(_ active: Bool) {
+        appState.isSubscribed = active
+        isActive = active
+        let key = "cachedIsSubscribed_\(appState.userId ?? "none")"
+        UserDefaults.standard.set(active, forKey: key)
     }
 }
 
