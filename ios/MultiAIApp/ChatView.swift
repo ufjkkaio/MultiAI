@@ -33,6 +33,7 @@ struct ChatView: View {
             if let err = errorMessage {
                 errorBanner(err)
             }
+            aiDisclaimer
             inputArea
         }
         .background(AppTheme.background)
@@ -156,6 +157,14 @@ struct ChatView: View {
                 .foregroundStyle(AppTheme.surfaceElevated),
             alignment: .top
         )
+    }
+
+    private var aiDisclaimer: some View {
+        Text("※AIは間違えることがあります")
+            .font(AppTheme.captionFont)
+            .foregroundStyle(AppTheme.textSecondary.opacity(0.8))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
     }
 
     private var canSend: Bool {

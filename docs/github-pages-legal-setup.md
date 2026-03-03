@@ -62,4 +62,22 @@ var termsURL: URL? { URL(string: "https://ufjkkaio.github.io/MultiAI/terms-of-us
 var privacyURL: URL? { URL(string: "https://ufjkkaio.github.io/MultiAI/privacy-policy.html") }
 ```
 
+---
+
+## 6. アプリ提出時（App Store Connect）でリンクを確認する場所
+
+提出時に次の場所で URL を入力・確認する。
+
+1. **App Store Connect** にログイン → 対象アプリを選択
+2. **「アプリ情報」**（App Information）を開く  
+   - **「プライバシーポリシー URL」**（必須）に  
+     `https://ufjkkaio.github.io/MultiAI/privacy-policy.html` を入力
+3. **「App のプライバシー」**や審査メモで利用規約 URL を求められた場合は  
+   `https://ufjkkaio.github.io/MultiAI/terms-of-use.html` を記載
+4. アプリ内の同意画面（AgreementView）からも同じ URL で利用規約・プライバシーポリシーへリンクされていることを確認する
+
+ブラウザで上記 URL を開き、利用規約・プライバシーポリシーが正しく表示されることを提出前に確認すること。
+
+---
+
 これでフェーズ2は完了。
