@@ -31,16 +31,16 @@
 
 ---
 
-## 3. GitHub で Pages を有効化する
+## 3. GitHub で Pages を有効化する（カスタムワークフロー利用）
+
+リポジトリに `ios/MultiAI` サブモジュールがあるため、標準の「Deploy from a branch」ではチェックアウトが失敗します。**カスタム GitHub Actions ワークフロー**（`.github/workflows/deploy-pages.yml`）で **docs だけ**をデプロイするようにしています。
 
 1. https://github.com/ufjkkaio/MultiAI を開く
-2. **Settings** タブをクリック
-3. 左メニューの **「Pages」** をクリック
-4. **「Build and deployment」** の **Source** で **「Deploy from a branch」** を選ぶ
-5. **Branch** で `main` を選び、**Folder** で `/docs` を選ぶ
-6. **Save** を押す
+2. **Settings** タブ → 左メニュー **「Pages」**
+3. **「Build and deployment」** の **Source** で **「GitHub Actions」** を選ぶ（**「Deploy from a branch」ではない**）
+4. このワークフロー（`Deploy docs to GitHub Pages`）は **main の push で docs を更新したとき**、または手動実行で動きます
 
-数分待つと、`https://ufjkkaio.github.io/MultiAI/` で公開される。
+`.github/workflows/deploy-pages.yml` を main に push したあと、**docs/** 以下を更新して push するか、Actions タブから「Deploy docs to GitHub Pages」を **Run workflow** で実行してください。数分で `https://ufjkkaio.github.io/MultiAI/` に公開されます。
 
 ---
 
