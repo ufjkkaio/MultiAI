@@ -129,35 +129,39 @@ router.get('/rooms/:roomId/messages', async (req, res) => {
     );
     if (check.rows.length === 0) return res.status(404).json({ error: 'Room not found' });
 
-    // attachments のみ取得（attachment_base64 は未導入のDBでは存在しないため使わない）
     const r = await query(
       'SELECT id, role, provider, content, expanded_from_id, attachments, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC',
       [roomId]
     );
-    const messages = r.rows.map((row) => {
-      let attachments = [];
-      const rawAttachments = Array.isArray(row.attachments) ? row.attachments : [];
-      if (rawAttachments.length > 0) {
-        attachments = rawAttachments
-          .filter((a) => a && (a.base64 || a.image_base64))
-          .map((a) => ({
-            base64: String(a.base64 ?? a.image_base64 ?? ''),
-            media_type: String(a.media_type ?? a.mediaType ?? 'image/jpeg'),
-          }));
+    const messages = [];
+    for (const row of r.rows) {
+      try {
+        let attachments = [];
+        const raw = row.attachments;
+        if (Array.isArray(raw) && raw.length > 0) {
+          attachments = raw
+            .filter((a) => a && (a.base64 != null || a.image_base64 != null))
+            .map((a) => ({
+              base64: String(a.base64 ?? a.image_base64 ?? ''),
+              media_type: String(a.media_type ?? a.mediaType ?? 'image/jpeg'),
+            }));
+        }
+        const createdAt = row.created_at == null
+          ? null
+          : (row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at));
+        messages.push({
+          id: String(row.id ?? ''),
+          role: String(row.role ?? 'user'),
+          provider: row.provider != null ? String(row.provider) : null,
+          content: String(row.content ?? ''),
+          expanded_from_id: row.expanded_from_id != null ? String(row.expanded_from_id) : null,
+          created_at: createdAt,
+          attachments,
+        });
+      } catch (err) {
+        console.error('Message row map error:', err?.message, 'row id:', row?.id);
       }
-      const createdAt = row.created_at instanceof Date
-        ? row.created_at.toISOString()
-        : (row.created_at ?? null);
-      return {
-        id: row.id,
-        role: row.role,
-        provider: row.provider ?? null,
-        content: String(row.content ?? ''),
-        expanded_from_id: row.expanded_from_id ?? null,
-        created_at: createdAt,
-        attachments,
-      };
-    });
+    }
     res.json({ messages });
   } catch (err) {
     console.error(err);
