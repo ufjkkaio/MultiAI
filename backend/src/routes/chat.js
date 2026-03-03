@@ -141,10 +141,14 @@ router.get('/rooms/:roomId/messages', async (req, res) => {
         if (Array.isArray(raw) && raw.length > 0) {
           attachments = raw
             .filter((a) => a && (a.base64 != null || a.image_base64 != null))
-            .map((a) => ({
-              base64: String(a.base64 ?? a.image_base64 ?? ''),
-              media_type: String(a.media_type ?? a.mediaType ?? 'image/jpeg'),
-            }));
+            .map((a) => {
+              const out = {
+                base64: String(a.base64 ?? a.image_base64 ?? ''),
+                media_type: String(a.media_type ?? a.mediaType ?? a.media_type ?? 'image/jpeg'),
+              };
+              if (a.filename != null && String(a.filename).trim()) out.filename = String(a.filename).trim();
+              return out;
+            });
         }
         const createdAt = row.created_at == null
           ? null
@@ -178,6 +182,43 @@ function sendSSE(res, event, data) {
 const MAX_ATTACHMENT_BASE64_LENGTH = 6 * 1024 * 1024; // ~4.5MB raw 想定（1枚あたり）
 const MAX_ATTACHMENTS = 5;
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+const MAX_FILE_BASE64_LENGTH = 2 * 1024 * 1024; // ファイル1つあたり約1.5MB想定
+const MAX_FILES = 3;
+const ALLOWED_FILE_TYPES = ['application/pdf', 'text/plain'];
+
+function parseFiles(body) {
+  const raw = body.files;
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  const list = [];
+  for (let i = 0; i < Math.min(raw.length, MAX_FILES); i++) {
+    const f = raw[i];
+    const mt = (f && f.media_type) ? String(f.media_type).toLowerCase().trim() : null;
+    const b64 = (f && f.content_base64) ? String(f.content_base64).trim() : null;
+    const name = (f && f.filename && typeof f.filename === 'string') ? String(f.filename).trim() : `file_${i}`;
+    if (mt && ALLOWED_FILE_TYPES.includes(mt) && b64 && b64.length > 0 && b64.length <= MAX_FILE_BASE64_LENGTH) {
+      list.push({ base64: b64, media_type: mt, filename: name || `file_${i}` });
+    }
+  }
+  return list;
+}
+
+function buildFileTextSuffix(files) {
+  if (!Array.isArray(files) || files.length === 0) return '';
+  const parts = [];
+  for (const f of files) {
+    if (f.media_type === 'text/plain') {
+      try {
+        const text = Buffer.from(f.base64, 'base64').toString('utf8');
+        parts.push(`\n\n[File: ${f.filename}]\n${text}`);
+      } catch (_) {
+        parts.push(`\n\n[File: ${f.filename}]\n(could not decode)`);
+      }
+    } else if (f.media_type === 'application/pdf') {
+      parts.push(`\n\n[PDF attached: ${f.filename}]`);
+    }
+  }
+  return parts.join('');
+}
 
 function parseAttachments(body) {
   const { attachments: attachmentsRaw, image_base64: imageBase64Raw, image_media_type: imageMediaTypeRaw } = body;
@@ -213,6 +254,11 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       return res.status(400).json({ error: 'content required' });
     }
     const attachmentsList = parseAttachments(req.body);
+    const fileList = parseFiles(req.body);
+    const mergedAttachments = [
+      ...attachmentsList.map((a) => ({ base64: a.base64, media_type: a.media_type })),
+      ...fileList.map((f) => ({ base64: f.base64, media_type: f.media_type, filename: f.filename })),
+    ];
 
     const roomCheck = await query(
       'SELECT id, COALESCE(selected_providers, \'["openai","gemini"]\') AS selected_providers FROM rooms WHERE id = $1 AND user_id = $2',
@@ -254,7 +300,7 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       responseStyle = prefs.rows[0].response_style || '';
     }
 
-    const attachmentsJson = attachmentsList.length > 0 ? JSON.stringify(attachmentsList) : null;
+    const attachmentsJson = mergedAttachments.length > 0 ? JSON.stringify(mergedAttachments) : null;
     const insertResult = await query(
       'INSERT INTO messages (room_id, role, content, attachments) VALUES ($1, $2, $3, $4::jsonb) RETURNING id, role, content, attachments, created_at',
       [roomId, 'user', content.trim(), attachmentsJson]
@@ -278,7 +324,8 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       created_at: userMessageRow.created_at,
     });
 
-    await getResponsesStreamingRealtime(content.trim(), history, {
+    const contentForAI = content.trim() + buildFileTextSuffix(fileList);
+    await getResponsesStreamingRealtime(contentForAI, history, {
       providers,
       profile,
       responseStyle,
