@@ -218,7 +218,9 @@ async function buildFileTextSuffix(files) {
       try {
         const buf = Buffer.from(f.base64, 'base64');
         const data = await pdfParse(buf);
-        const text = (data && data.text && data.text.trim()) ? data.text.trim() : '';
+        let text = (data && data.text && data.text.trim()) ? data.text.trim() : '';
+        const maxChars = 80000;
+        if (text.length > maxChars) text = text.slice(0, maxChars) + '\n\n(続きは省略しました)';
         parts.push(text ? `\n\n[PDF: ${f.filename}]\n${text}` : `\n\n[PDF: ${f.filename}]\n(テキストを抽出できませんでした)`);
       } catch (err) {
         console.error('PDF parse error:', err?.message);
