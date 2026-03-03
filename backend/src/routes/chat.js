@@ -130,10 +130,17 @@ router.get('/rooms/:roomId/messages', async (req, res) => {
     if (check.rows.length === 0) return res.status(404).json({ error: 'Room not found' });
 
     const r = await query(
-      'SELECT id, role, provider, content, expanded_from_id, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC',
+      'SELECT id, role, provider, content, expanded_from_id, attachments, attachment_base64, attachment_media_type, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC',
       [roomId]
     );
-    res.json({ messages: r.rows });
+    const messages = r.rows.map((row) => {
+      const attachments = row.attachments && (Array.isArray(row.attachments) ? row.attachments.length > 0 : true)
+        ? row.attachments
+        : (row.attachment_base64 ? [{ base64: row.attachment_base64, media_type: row.attachment_media_type || 'image/jpeg' }] : []);
+      const { attachment_base64, attachment_media_type, ...rest } = row;
+      return { ...rest, attachments: attachments || [] };
+    });
+    res.json({ messages });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to get messages' });
@@ -146,6 +153,36 @@ function sendSSE(res, event, data) {
   if (typeof res.flush === 'function') res.flush();
 }
 
+const MAX_ATTACHMENT_BASE64_LENGTH = 6 * 1024 * 1024; // ~4.5MB raw 想定（1枚あたり）
+const MAX_ATTACHMENTS = 5;
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+
+function parseAttachments(body) {
+  const { attachments: attachmentsRaw, image_base64: imageBase64Raw, image_media_type: imageMediaTypeRaw } = body;
+  if (Array.isArray(attachmentsRaw) && attachmentsRaw.length > 0) {
+    const list = [];
+    for (let i = 0; i < Math.min(attachmentsRaw.length, MAX_ATTACHMENTS); i++) {
+      const a = attachmentsRaw[i];
+      const mt = (a && a.image_media_type) ? String(a.image_media_type).toLowerCase().trim() : null;
+      const b64 = (a && a.image_base64) ? String(a.image_base64).replace(/^data:image\/\w+;base64,/, '').trim() : null;
+      if (mt && ALLOWED_IMAGE_TYPES.includes(mt) && b64 && b64.length > 0 && b64.length <= MAX_ATTACHMENT_BASE64_LENGTH) {
+        list.push({ base64: b64, media_type: mt });
+      }
+    }
+    return list;
+  }
+  if (imageBase64Raw != null && imageMediaTypeRaw != null) {
+    const mt = String(imageMediaTypeRaw).toLowerCase().trim();
+    if (ALLOWED_IMAGE_TYPES.includes(mt)) {
+      const b64 = String(imageBase64Raw).replace(/^data:image\/\w+;base64,/, '').trim();
+      if (b64 && b64.length <= MAX_ATTACHMENT_BASE64_LENGTH) {
+        return [{ base64: b64, media_type: mt }];
+      }
+    }
+  }
+  return [];
+}
+
 router.post('/rooms/:roomId/messages', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -153,6 +190,7 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
     if (!content || typeof content !== 'string' || !content.trim()) {
       return res.status(400).json({ error: 'content required' });
     }
+    const attachmentsList = parseAttachments(req.body);
 
     const roomCheck = await query(
       'SELECT id, COALESCE(selected_providers, \'["openai","gemini"]\') AS selected_providers FROM rooms WHERE id = $1 AND user_id = $2',
@@ -194,10 +232,13 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       responseStyle = prefs.rows[0].response_style || '';
     }
 
-    await query(
-      'INSERT INTO messages (room_id, role, content) VALUES ($1, $2, $3)',
-      [roomId, 'user', content.trim()]
+    const attachmentsJson = attachmentsList.length > 0 ? JSON.stringify(attachmentsList) : null;
+    const insertResult = await query(
+      'INSERT INTO messages (room_id, role, content, attachments) VALUES ($1, $2, $3, $4::jsonb) RETURNING id, role, content, attachments, created_at',
+      [roomId, 'user', content.trim(), attachmentsJson]
     );
+    const userMessageRow = insertResult.rows[0];
+    const attachmentsForClient = userMessageRow.attachments || [];
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -208,12 +249,18 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
     // プロキシのバッファリング対策: 先頭にパディングを送って即フラッシュさせる
     res.write(': ' + ' '.repeat(2046) + '\n\n');
 
-    sendSSE(res, 'user', { content: content.trim() });
+    sendSSE(res, 'user', {
+      id: userMessageRow.id,
+      content: userMessageRow.content,
+      attachments: Array.isArray(attachmentsForClient) ? attachmentsForClient : [],
+      created_at: userMessageRow.created_at,
+    });
 
     await getResponsesStreamingRealtime(content.trim(), history, {
       providers,
       profile,
       responseStyle,
+      images: attachmentsList,
       onChunk: (provider, delta) => {
         sendSSE(res, 'chunk', { provider, delta });
       },

@@ -1,4 +1,15 @@
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
+
+private struct PickableImage: Transferable {
+    let data: Data
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(importedContentType: .image) { data in
+            PickableImage(data: data)
+        }
+    }
+}
 
 struct ChatView: View {
     let roomId: String
@@ -14,6 +25,8 @@ struct ChatView: View {
     @FocusState private var isInputFocused: Bool
     @State private var showEditNameSheet = false
     @State private var scrollTrigger = UUID()
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var selectedImageDatas: [Data] = []
 
     init(roomId: String, roomName: String? = nil, onRoomUpdated: (() -> Void)? = nil) {
         self.roomId = roomId
@@ -125,8 +138,58 @@ struct ChatView: View {
     }
 
     private var inputArea: some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            TextField("メッセージを入力...", text: $inputText, axis: .vertical)
+        VStack(alignment: .leading, spacing: 8) {
+            if !selectedImageDatas.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(selectedImageDatas.enumerated()), id: \.offset) { index, data in
+                            if let uiImage = UIImage(data: data) {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(uiImage: uiImage)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 72, height: 72)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    Button {
+                                        removeSelectedImage(at: index)
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.body)
+                                            .foregroundStyle(.white)
+                                            .shadow(radius: 1)
+                                    }
+                                    .padding(4)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+                .frame(height: 80)
+            }
+            HStack(alignment: .bottom, spacing: 10) {
+                PhotosPicker(
+                    selection: $selectedPhotoItems,
+                    maxSelectionCount: 5,
+                    matching: .images
+                ) {
+                    Image(systemName: "photo")
+                        .font(.title3)
+                        .foregroundStyle(AppTheme.textPrimary)
+                        .frame(width: 36, height: 36)
+                }
+                .onChange(of: selectedPhotoItems) { _, newItems in
+                    Task {
+                        var datas: [Data] = []
+                        for item in newItems {
+                            if let d = try? await item.loadTransferable(type: PickableImage.self)?.data {
+                                datas.append(d)
+                            }
+                        }
+                        await MainActor.run { selectedImageDatas = datas }
+                    }
+                }
+                TextField("メッセージを入力...", text: $inputText, axis: .vertical)
                 .focused($isInputFocused)
                 .textFieldStyle(.plain)
                 .padding(12)
@@ -139,17 +202,19 @@ struct ChatView: View {
                         .stroke(AppTheme.surfaceElevated, lineWidth: 1)
                 )
 
-            Button {
-                isInputFocused = false
-                sendMessage()
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 36))
-                    .foregroundStyle(canSend ? AppTheme.accent : AppTheme.textSecondary.opacity(0.5))
+                Button {
+                    isInputFocused = false
+                    sendMessage()
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 36))
+                        .foregroundStyle(canSend ? AppTheme.accent : AppTheme.textSecondary.opacity(0.5))
+                }
+                .disabled(!canSend)
             }
-            .disabled(!canSend)
+            .padding(.horizontal)
         }
-        .padding()
+        .padding(.vertical, 8)
         .background(AppTheme.background)
         .overlay(
             Rectangle()
@@ -169,6 +234,14 @@ struct ChatView: View {
 
     private var canSend: Bool {
         !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending
+    }
+
+    private func removeSelectedImage(at index: Int) {
+        guard index < selectedImageDatas.count else { return }
+        selectedImageDatas.remove(at: index)
+        if index < selectedPhotoItems.count {
+            selectedPhotoItems.remove(at: index)
+        }
     }
 
     private func loadMessages() {
@@ -206,15 +279,43 @@ struct ChatView: View {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let token = appState.authToken else { return }
 
+        struct AttachmentPayload: Encodable {
+            let image_base64: String
+            let image_media_type: String
+        }
+        var attachmentsPayload: [AttachmentPayload] = []
+        for data in selectedImageDatas {
+            guard let uiImage = UIImage(data: data) else { continue }
+            let maxSide: CGFloat = 1024
+            let scale = min(maxSide / max(uiImage.size.width, uiImage.size.height), 1)
+            let size = CGSize(width: uiImage.size.width * scale, height: uiImage.size.height * scale)
+            UIGraphicsBeginImageContextWithOptions(size, true, 1)
+            uiImage.draw(in: CGRect(origin: .zero, size: size))
+            let resized = UIGraphicsGetImageFromCurrentImageContext()
+            UIGraphicsEndImageContext()
+            if let jpeg = (resized ?? uiImage).jpegData(compressionQuality: 0.8) {
+                attachmentsPayload.append(AttachmentPayload(image_base64: jpeg.base64EncodedString(), image_media_type: "image/jpeg"))
+            }
+        }
+
+        struct SendBody: Encodable {
+            let content: String
+            let attachments: [AttachmentPayload]?
+        }
         guard let url = URL(string: APIClient.baseURL + "/chat/rooms/\(roomId)/messages") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.allHTTPHeaderFields = APIClient.authHeader(token)
-        req.httpBody = try? JSONEncoder().encode(["content": text])
+        req.httpBody = try? JSONEncoder().encode(SendBody(
+            content: text,
+            attachments: attachmentsPayload.isEmpty ? nil : attachmentsPayload
+        ))
 
         isSending = true
         inputText = ""
+        selectedPhotoItems = []
+        selectedImageDatas = []
         errorMessage = nil
 
         Task {
@@ -246,7 +347,7 @@ struct ChatView: View {
                     for try await byte in bytes { data.append(byte) }
                     let res = try JSONDecoder().decode(SendMessageResponse.self, from: data)
                     await MainActor.run {
-                        messages.append(Message(id: UUID().uuidString, role: "user", provider: nil, content: res.userMessage.content, createdAt: nil))
+                        messages.append(Message(id: UUID().uuidString, role: "user", provider: nil, content: res.userMessage.content, expandedFromId: nil, attachmentBase64: nil, attachmentMediaType: nil, attachments: nil, createdAt: nil))
                         messages.append(contentsOf: res.assistantMessages)
                         isSending = false
                     }
@@ -288,8 +389,20 @@ struct ChatView: View {
         await MainActor.run {
             switch eventType {
             case "user":
-                if let u = try? JSONDecoder().decode(UserMessagePart.self, from: data) {
-                    let newMsg = Message(id: UUID().uuidString, role: "user", provider: nil, content: u.content, createdAt: nil)
+                let dec = JSONDecoder()
+                dec.keyDecodingStrategy = .convertFromSnakeCase
+                if let u = try? dec.decode(UserMessageSSE.self, from: data) {
+                    let newMsg = Message(
+                        id: u.id ?? UUID().uuidString,
+                        role: "user",
+                        provider: nil,
+                        content: u.content,
+                        expandedFromId: nil,
+                        attachmentBase64: u.attachmentBase64,
+                        attachmentMediaType: u.attachmentMediaType,
+                        attachments: u.effectiveAttachments.isEmpty ? nil : u.effectiveAttachments,
+                        createdAt: u.createdAt
+                    )
                     messages = messages + [newMsg]
                 }
             case "chunk":
@@ -297,10 +410,10 @@ struct ChatView: View {
                     let streamId = "streaming-\(c.provider)"
                     if let idx = messages.firstIndex(where: { $0.id == streamId }) {
                         let cur = messages[idx]
-                        let updated = Message(id: streamId, role: "assistant", provider: c.provider, content: cur.content + c.delta, createdAt: nil)
+                        let updated = Message(id: streamId, role: "assistant", provider: c.provider, content: cur.content + c.delta, expandedFromId: nil, attachmentBase64: nil, attachmentMediaType: nil, attachments: nil, createdAt: nil)
                         messages = messages.enumerated().map { $0.offset == idx ? updated : $0.element }
                     } else {
-                        let newMsg = Message(id: streamId, role: "assistant", provider: c.provider, content: c.delta, createdAt: nil)
+                        let newMsg = Message(id: streamId, role: "assistant", provider: c.provider, content: c.delta, expandedFromId: nil, attachmentBase64: nil, attachmentMediaType: nil, attachments: nil, createdAt: nil)
                         messages = messages + [newMsg]
                     }
                     scrollTrigger = UUID()
@@ -336,25 +449,41 @@ struct MessageRow: View {
                 providerBadge
             }
 
-            Text(message.content)
-                .font(AppTheme.bodyFont)
-                .foregroundStyle(message.role == "user" ? .white : AppTheme.textPrimary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(message.role == "user" ? AppTheme.userBubble : AppTheme.aiBubble)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(message.role == "user" ? Color.clear : AppTheme.surfaceElevated.opacity(0.5), lineWidth: 1)
-                )
+            messageBubble
 
-            if message.role == "user" {
-                Spacer(minLength: 0)
-            } else {
+            if message.role != "user" {
                 Spacer(minLength: 60)
             }
         }
         .animation(.easeOut(duration: 0.2), value: message.id)
+    }
+
+    @ViewBuilder
+    private var messageBubble: some View {
+        VStack(alignment: message.role == "user" ? .trailing : .leading, spacing: 8) {
+            ForEach(Array(message.effectiveAttachments.enumerated()), id: \.offset) { _, att in
+                if let data = Data(base64Encoded: att.base64), let uiImage = UIImage(data: data) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 280, maxHeight: 200)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+            }
+            if !message.content.isEmpty {
+                Text(message.content)
+                    .font(AppTheme.bodyFont)
+                    .foregroundStyle(message.role == "user" ? .white : AppTheme.textPrimary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(message.role == "user" ? AppTheme.userBubble : AppTheme.aiBubble)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(message.role == "user" ? Color.clear : AppTheme.surfaceElevated.opacity(0.5), lineWidth: 1)
+        )
     }
 
     @ViewBuilder

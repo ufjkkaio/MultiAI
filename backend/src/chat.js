@@ -34,7 +34,9 @@ async function callOpenAI(messages) {
   return response.choices[0]?.message?.content?.trim() || '';
 }
 
-/** ストリーミング: チャンクごとに onChunk(provider, delta) を呼ぶ。完了時に fullContent を返す */
+/** ストリーミング: チャンクごとに onChunk(provider, delta) を呼ぶ。完了時に fullContent を返す。
+ *  messages の各要素の content は string または Vision 用の content parts 配列可。
+ */
 async function callOpenAIStream(messages, onChunk, systemContent) {
   if (!openai) throw new Error('OpenAI not configured');
   const system = systemContent || 'You are a helpful assistant in a group chat. Reply concisely in the same language as the user.';
@@ -69,8 +71,10 @@ async function callGemini(messages) {
   return text?.trim() || '';
 }
 
-/** ストリーミング: チャンクごとに onChunk(provider, delta) を呼ぶ。完了時に fullContent を返す */
-async function callGeminiStream(messages, onChunk, systemContent) {
+/** ストリーミング: チャンクごとに onChunk(provider, delta) を呼ぶ。完了時に fullContent を返す。
+ *  lastMessageImages: { base64, mimeType }[] がある場合、最後の user メッセージに画像を添付（Vision）。
+ */
+async function callGeminiStream(messages, onChunk, systemContent, lastMessageImages = []) {
   if (!genAI) throw new Error('Gemini not configured');
   const model = genAI.getGenerativeModel({
     model: config.gemini.model,
@@ -78,10 +82,25 @@ async function callGeminiStream(messages, onChunk, systemContent) {
       thinkingConfig: { thinkingBudget: 0 },
     },
   });
-  const basePrompt = messages.map((m) => `${m.role}: ${m.content}`).join('\n') + '\nassistant:';
+  const basePrompt = messages.map((m) => {
+    const content = Array.isArray(m.content) ? m.content.map((p) => (p.type === 'text' ? p.text : '[image]')).join('') : m.content;
+    return `${m.role}: ${content}`;
+  }).join('\n') + '\nassistant:';
   const prompt = systemContent ? `System: ${systemContent}\n\n${basePrompt}` : basePrompt;
+  const parts = [{ text: prompt }];
+  const imgList = Array.isArray(lastMessageImages) ? lastMessageImages : [];
+  for (const img of imgList) {
+    if (img && img.base64 && img.mimeType) {
+      parts.push({
+        inlineData: {
+          mimeType: img.mimeType,
+          data: img.base64,
+        },
+      });
+    }
+  }
   const result = await model.generateContentStream({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    contents: [{ role: 'user', parts }],
   });
   let full = '';
   for await (const chunk of result.stream) {
@@ -193,11 +212,20 @@ function parseProviders(val) {
  * @param {string[]} [providers] - 呼び出すプロバイダー。省略時は両方。
  * @param {string} [profile] - ユーザープロフィール（パーソナライズ）
  * @param {string} [responseStyle] - 返答スタイル（パーソナライズ）
+ * @param {{ base64: string, media_type: string }[]} [images] - 添付画像（最大5枚）
  */
-async function getResponsesStreamingRealtime(userMessage, history, { providers = DEFAULT_PROVIDERS, profile, responseStyle, onChunk, onDone }) {
+async function getResponsesStreamingRealtime(userMessage, history, { providers = DEFAULT_PROVIDERS, profile, responseStyle, images = [], onChunk, onDone }) {
   const effective = Array.isArray(providers) && providers.length > 0 ? providers : DEFAULT_PROVIDERS;
   const messages = buildMessages(history);
-  const nextMessages = [...messages, { role: 'user', content: userMessage }];
+  const imageList = Array.isArray(images) ? images.slice(0, 5) : [];
+  const lastUserContent = imageList.length > 0
+    ? [
+        { type: 'text', text: userMessage },
+        ...imageList.map((img) => ({ type: 'image_url', image_url: { url: `data:${img.media_type};base64,${img.base64}` } })),
+      ]
+    : userMessage;
+  const nextMessages = [...messages, { role: 'user', content: lastUserContent }];
+  const lastMessageImages = imageList.map((img) => ({ base64: img.base64, mimeType: img.media_type }));
   const timeoutMs = parseInt(process.env.AI_TIMEOUT_MS || '30000', 10);
   const systemContent = buildSystemContent(profile, responseStyle);
 
@@ -218,7 +246,7 @@ async function getResponsesStreamingRealtime(userMessage, history, { providers =
   const runGemini = async () => {
     try {
       const full = await withTimeout(
-        callGeminiStream(nextMessages, (delta) => onChunk('gemini', delta), systemContent),
+        callGeminiStream(nextMessages, (delta) => onChunk('gemini', delta), systemContent, lastMessageImages),
         timeoutMs,
         'Gemini'
       );
