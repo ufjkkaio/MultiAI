@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS messages (
   role TEXT NOT NULL,   -- 'user' | 'assistant'
   provider TEXT,       -- 'openai' | 'gemini' (assistant のみ)
   content TEXT NOT NULL,
+  expanded_from_id UUID REFERENCES messages(id) ON DELETE SET NULL,  -- Gemini「さらに詳しく」の元メッセージ
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

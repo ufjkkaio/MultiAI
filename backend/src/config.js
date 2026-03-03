@@ -10,6 +10,7 @@ module.exports = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY,
     model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    modelStandard: process.env.GEMINI_MODEL_STANDARD || 'gemini-2.5-flash',  // 「さらに詳しく」用
   },
   monthlyMessageLimit: parseInt(process.env.MONTHLY_MESSAGE_LIMIT || '2000', 10),
 };

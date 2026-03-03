@@ -1,6 +1,6 @@
 const express = require('express');
 const { query } = require('../db');
-const { getResponsesStreamingRealtime, parseProviders } = require('../chat');
+const { getResponsesStreamingRealtime, parseProviders, callGeminiWithModel } = require('../chat');
 const config = require('../config');
 const { authMiddleware } = require('../auth');
 
@@ -115,7 +115,7 @@ router.get('/rooms/:roomId/messages', async (req, res) => {
     if (check.rows.length === 0) return res.status(404).json({ error: 'Room not found' });
 
     const r = await query(
-      'SELECT id, role, provider, content, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC',
+      'SELECT id, role, provider, content, expanded_from_id, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC',
       [roomId]
     );
     res.json({ messages: r.rows });
@@ -199,7 +199,7 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
         }
         if (content) {
           const q = await query(
-            'INSERT INTO messages (room_id, role, provider, content) VALUES ($1, $2, $3, $4) RETURNING id, role, provider, content, created_at',
+            'INSERT INTO messages (room_id, role, provider, content, expanded_from_id) VALUES ($1, $2, $3, $4, NULL) RETURNING id, role, provider, content, expanded_from_id, created_at',
             [roomId, 'assistant', provider, content]
           );
           sendSSE(res, 'message', q.rows[0]);
@@ -219,5 +219,74 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
     }
   }
 });
+
+/** Gemini の「さらに詳しく」: 標準モデルで再回答し、元の下に追加する */
+router.post('/rooms/:roomId/messages/expand', async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { message_id: messageId } = req.body;
+    if (!messageId || typeof messageId !== 'string') {
+      return res.status(400).json({ error: 'message_id required' });
+    }
+
+    const roomCheck = await query(
+      'SELECT id FROM rooms WHERE id = $1 AND user_id = $2',
+      [roomId, req.userId]
+    );
+    if (roomCheck.rows.length === 0) return res.status(404).json({ error: 'Room not found' });
+
+    const subscribed = await checkSubscription(req.userId);
+    if (!subscribed) {
+      return res.status(403).json({ error: 'Subscription required', code: 'SUBSCRIPTION_REQUIRED' });
+    }
+
+    const msgRow = await query(
+      'SELECT id, role, provider, content FROM messages WHERE id = $1 AND room_id = $2',
+      [messageId, roomId]
+    );
+    if (msgRow.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
+    const msg = msgRow.rows[0];
+    if (msg.role !== 'assistant' || msg.provider !== 'gemini') {
+      return res.status(400).json({ error: 'Only Gemini assistant messages can be expanded' });
+    }
+
+    const alreadyExpanded = await query(
+      'SELECT id FROM messages WHERE expanded_from_id = $1',
+      [messageId]
+    );
+    if (alreadyExpanded.rows.length > 0) {
+      return res.status(400).json({ error: 'Already expanded' });
+    }
+
+    const allBefore = await query(
+      `SELECT id, role, content, created_at FROM messages WHERE room_id = $1 AND created_at <= (SELECT created_at FROM messages WHERE id = $2) ORDER BY created_at ASC`,
+      [roomId, messageId]
+    );
+    const historyRows = allBefore.rows.filter((r) => r.id !== messageId);
+    const history = historyRows.map((r) => ({ role: r.role, content: r.content }));
+
+    const expandInstruction = `The user asked for more detail. Your previous brief response was:\n\n${msg.content}\n\nProvide a more detailed and thorough response in the same language.`;
+    const expandMessages = [...buildMessagesForExpand(history), { role: 'user', content: expandInstruction }];
+
+    const detailedContent = await callGeminiWithModel(expandMessages, config.gemini.modelStandard);
+
+    const inserted = await query(
+      `INSERT INTO messages (room_id, role, provider, content, expanded_from_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, role, provider, content, expanded_from_id, created_at`,
+      [roomId, 'assistant', 'gemini', detailedContent, messageId]
+    );
+
+    res.status(201).json(inserted.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Expand failed' });
+  }
+});
+
+function buildMessagesForExpand(history) {
+  return history.map((m) => ({
+    role: m.role === 'assistant' ? 'assistant' : 'user',
+    content: m.content,
+  }));
+}
 
 module.exports = router;

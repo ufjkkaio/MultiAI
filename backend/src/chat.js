@@ -84,6 +84,21 @@ async function callGeminiStream(messages, onChunk) {
   return full.trim();
 }
 
+/** 指定モデルで Gemini を呼ぶ（非ストリーミング）。expand「さらに詳しく」用 */
+async function callGeminiWithModel(messages, modelName) {
+  if (!genAI) throw new Error('Gemini not configured');
+  const model = genAI.getGenerativeModel({
+    model: modelName || config.gemini.model,
+    generationConfig: {
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  });
+  const prompt = messages.map((m) => `${m.role}: ${m.content}`).join('\n') + '\nassistant:';
+  const result = await model.generateContent(prompt);
+  const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
+  return text?.trim() || '';
+}
+
 function withTimeout(promise, ms, label) {
   return Promise.race([
     promise,
@@ -206,4 +221,4 @@ async function getResponsesStreamingRealtime(userMessage, history, { providers =
   await Promise.all(tasks);
 }
 
-module.exports = { getResponses, getResponsesStreaming, getResponsesStreamingRealtime, parseProviders };
+module.exports = { getResponses, getResponsesStreaming, getResponsesStreamingRealtime, parseProviders, callGeminiWithModel };
