@@ -9,7 +9,8 @@ const subscriptionRoutes = require('./routes/subscription');
 const userRoutes = require('./routes/user');
 
 const app = express();
-app.use(express.json());
+// 写真・PDF の base64 送信用に body 上限を拡大（デフォルト 100kb では足りない）
+app.use(express.json({ limit: '15mb' }));
 
 app.use((req, res, next) => {
   res.set('Access-Control-Allow-Origin', '*');
