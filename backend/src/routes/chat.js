@@ -1,6 +1,6 @@
 const express = require('express');
 const { query } = require('../db');
-const { getResponsesStreamingRealtime, parseProviders, callGeminiWithModel } = require('../chat');
+const { getResponsesStreamingRealtime, parseProviders, callGeminiWithModel, buildSystemContent } = require('../chat');
 const config = require('../config');
 const { authMiddleware } = require('../auth');
 
@@ -171,6 +171,14 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       content: row.content,
     }));
 
+    let profile = '';
+    let responseStyle = '';
+    const prefs = await query('SELECT profile, response_style FROM user_preferences WHERE user_id = $1', [req.userId]);
+    if (prefs.rows.length > 0) {
+      profile = prefs.rows[0].profile || '';
+      responseStyle = prefs.rows[0].response_style || '';
+    }
+
     await query(
       'INSERT INTO messages (room_id, role, content) VALUES ($1, $2, $3)',
       [roomId, 'user', content.trim()]
@@ -189,6 +197,8 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
 
     await getResponsesStreamingRealtime(content.trim(), history, {
       providers,
+      profile,
+      responseStyle,
       onChunk: (provider, delta) => {
         sendSSE(res, 'chunk', { provider, delta });
       },
@@ -265,10 +275,19 @@ router.post('/rooms/:roomId/messages/expand', async (req, res) => {
     const historyRows = allBefore.rows.filter((r) => r.id !== messageId);
     const history = historyRows.map((r) => ({ role: r.role, content: r.content }));
 
+    let profile = '';
+    let responseStyle = '';
+    const prefs = await query('SELECT profile, response_style FROM user_preferences WHERE user_id = $1', [req.userId]);
+    if (prefs.rows.length > 0) {
+      profile = prefs.rows[0].profile || '';
+      responseStyle = prefs.rows[0].response_style || '';
+    }
+    const systemContent = buildSystemContent(profile, responseStyle);
+
     const expandInstruction = `The user asked for more detail. Your previous brief response was:\n\n${msg.content}\n\nProvide a more detailed and thorough response in the same language.`;
     const expandMessages = [...buildMessagesForExpand(history), { role: 'user', content: expandInstruction }];
 
-    const detailedContent = await callGeminiWithModel(expandMessages, config.gemini.modelStandard);
+    const detailedContent = await callGeminiWithModel(expandMessages, config.gemini.modelStandard, systemContent);
 
     const inserted = await query(
       `INSERT INTO messages (room_id, role, provider, content, expanded_from_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, role, provider, content, expanded_from_id, created_at`,

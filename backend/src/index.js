@@ -6,6 +6,7 @@ const config = require('./config');
 const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
 const subscriptionRoutes = require('./routes/subscription');
+const userRoutes = require('./routes/user');
 
 const app = express();
 app.use(express.json());
@@ -25,6 +26,7 @@ app.get('/health', (req, res) => {
 app.use('/auth', authRoutes);
 app.use('/chat', chatRoutes);
 app.use('/subscription', subscriptionRoutes);
+app.use('/user', userRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);

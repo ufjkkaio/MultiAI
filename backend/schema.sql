@@ -43,5 +43,12 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS user_preferences (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  profile TEXT DEFAULT '',
+  response_style TEXT DEFAULT '',
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_room_created ON messages(room_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_rooms_user ON rooms(user_id);

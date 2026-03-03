@@ -16,6 +16,14 @@ function buildMessages(history) {
   }));
 }
 
+/** パーソナライズを反映した system 文 */
+function buildSystemContent(profile, responseStyle) {
+  let base = 'You are a helpful assistant in a group chat. Reply concisely in the same language as the user.';
+  if (profile && profile.trim()) base += `\n[User profile: ${profile.trim()}]`;
+  if (responseStyle && responseStyle.trim()) base += `\n[Response style: ${responseStyle.trim()}]`;
+  return base;
+}
+
 async function callOpenAI(messages) {
   if (!openai) throw new Error('OpenAI not configured');
   const response = await openai.chat.completions.create({
@@ -27,11 +35,12 @@ async function callOpenAI(messages) {
 }
 
 /** ストリーミング: チャンクごとに onChunk(provider, delta) を呼ぶ。完了時に fullContent を返す */
-async function callOpenAIStream(messages, onChunk) {
+async function callOpenAIStream(messages, onChunk, systemContent) {
   if (!openai) throw new Error('OpenAI not configured');
+  const system = systemContent || 'You are a helpful assistant in a group chat. Reply concisely in the same language as the user.';
   const stream = await openai.chat.completions.create({
     model: config.openai.model,
-    messages: [{ role: 'system', content: 'You are a helpful assistant in a group chat. Reply concisely in the same language as the user.' }, ...messages],
+    messages: [{ role: 'system', content: system }, ...messages],
     max_tokens: 1024,
     stream: true,
   });
@@ -61,7 +70,7 @@ async function callGemini(messages) {
 }
 
 /** ストリーミング: チャンクごとに onChunk(provider, delta) を呼ぶ。完了時に fullContent を返す */
-async function callGeminiStream(messages, onChunk) {
+async function callGeminiStream(messages, onChunk, systemContent) {
   if (!genAI) throw new Error('Gemini not configured');
   const model = genAI.getGenerativeModel({
     model: config.gemini.model,
@@ -69,7 +78,8 @@ async function callGeminiStream(messages, onChunk) {
       thinkingConfig: { thinkingBudget: 0 },
     },
   });
-  const prompt = messages.map((m) => `${m.role}: ${m.content}`).join('\n') + '\nassistant:';
+  const basePrompt = messages.map((m) => `${m.role}: ${m.content}`).join('\n') + '\nassistant:';
+  const prompt = systemContent ? `System: ${systemContent}\n\n${basePrompt}` : basePrompt;
   const result = await model.generateContentStream({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
   });
@@ -85,7 +95,7 @@ async function callGeminiStream(messages, onChunk) {
 }
 
 /** 指定モデルで Gemini を呼ぶ（非ストリーミング）。expand「さらに詳しく」用 */
-async function callGeminiWithModel(messages, modelName) {
+async function callGeminiWithModel(messages, modelName, systemContent) {
   if (!genAI) throw new Error('Gemini not configured');
   const model = genAI.getGenerativeModel({
     model: modelName || config.gemini.model,
@@ -93,7 +103,8 @@ async function callGeminiWithModel(messages, modelName) {
       thinkingConfig: { thinkingBudget: 0 },
     },
   });
-  const prompt = messages.map((m) => `${m.role}: ${m.content}`).join('\n') + '\nassistant:';
+  const basePrompt = messages.map((m) => `${m.role}: ${m.content}`).join('\n') + '\nassistant:';
+  const prompt = systemContent ? `System: ${systemContent}\n\n${basePrompt}` : basePrompt;
   const result = await model.generateContent(prompt);
   const text = result.response?.candidates?.[0]?.content?.parts?.[0]?.text;
   return text?.trim() || '';
@@ -180,17 +191,20 @@ function parseProviders(val) {
  * リアルタイムストリーミング: チャンクごとに onChunk(provider, delta) を呼ぶ。
  * 各プロバイダー完了時に onDone(provider, fullContent) を呼ぶ。
  * @param {string[]} [providers] - 呼び出すプロバイダー。省略時は両方。
+ * @param {string} [profile] - ユーザープロフィール（パーソナライズ）
+ * @param {string} [responseStyle] - 返答スタイル（パーソナライズ）
  */
-async function getResponsesStreamingRealtime(userMessage, history, { providers = DEFAULT_PROVIDERS, onChunk, onDone }) {
+async function getResponsesStreamingRealtime(userMessage, history, { providers = DEFAULT_PROVIDERS, profile, responseStyle, onChunk, onDone }) {
   const effective = Array.isArray(providers) && providers.length > 0 ? providers : DEFAULT_PROVIDERS;
   const messages = buildMessages(history);
   const nextMessages = [...messages, { role: 'user', content: userMessage }];
   const timeoutMs = parseInt(process.env.AI_TIMEOUT_MS || '30000', 10);
+  const systemContent = buildSystemContent(profile, responseStyle);
 
   const runOpenAI = async () => {
     try {
       const full = await withTimeout(
-        callOpenAIStream(nextMessages, (delta) => onChunk('openai', delta)),
+        callOpenAIStream(nextMessages, (delta) => onChunk('openai', delta), systemContent),
         timeoutMs,
         'OpenAI'
       );
@@ -204,7 +218,7 @@ async function getResponsesStreamingRealtime(userMessage, history, { providers =
   const runGemini = async () => {
     try {
       const full = await withTimeout(
-        callGeminiStream(nextMessages, (delta) => onChunk('gemini', delta)),
+        callGeminiStream(nextMessages, (delta) => onChunk('gemini', delta), systemContent),
         timeoutMs,
         'Gemini'
       );
@@ -221,4 +235,4 @@ async function getResponsesStreamingRealtime(userMessage, history, { providers =
   await Promise.all(tasks);
 }
 
-module.exports = { getResponses, getResponsesStreaming, getResponsesStreamingRealtime, parseProviders, callGeminiWithModel };
+module.exports = { getResponses, getResponsesStreaming, getResponsesStreamingRealtime, parseProviders, callGeminiWithModel, buildSystemContent };
