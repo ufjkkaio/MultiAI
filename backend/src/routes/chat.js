@@ -1,4 +1,5 @@
 const express = require('express');
+const pdfParse = require('pdf-parse');
 const { query } = require('../db');
 const { getResponsesStreamingRealtime, parseProviders, callGeminiWithModel, buildSystemContent } = require('../chat');
 const config = require('../config');
@@ -202,7 +203,7 @@ function parseFiles(body) {
   return list;
 }
 
-function buildFileTextSuffix(files) {
+async function buildFileTextSuffix(files) {
   if (!Array.isArray(files) || files.length === 0) return '';
   const parts = [];
   for (const f of files) {
@@ -214,7 +215,15 @@ function buildFileTextSuffix(files) {
         parts.push(`\n\n[File: ${f.filename}]\n(could not decode)`);
       }
     } else if (f.media_type === 'application/pdf') {
-      parts.push(`\n\n[PDF attached: ${f.filename}]`);
+      try {
+        const buf = Buffer.from(f.base64, 'base64');
+        const data = await pdfParse(buf);
+        const text = (data && data.text && data.text.trim()) ? data.text.trim() : '';
+        parts.push(text ? `\n\n[PDF: ${f.filename}]\n${text}` : `\n\n[PDF: ${f.filename}]\n(テキストを抽出できませんでした)`);
+      } catch (err) {
+        console.error('PDF parse error:', err?.message);
+        parts.push(`\n\n[PDF: ${f.filename}]\n(読み取りに失敗しました)`);
+      }
     }
   }
   return parts.join('');
@@ -324,7 +333,7 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       created_at: userMessageRow.created_at,
     });
 
-    const contentForAI = content.trim() + buildFileTextSuffix(fileList);
+    const contentForAI = content.trim() + (await buildFileTextSuffix(fileList));
     await getResponsesStreamingRealtime(contentForAI, history, {
       providers,
       profile,
