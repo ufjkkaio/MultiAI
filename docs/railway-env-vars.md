@@ -82,7 +82,7 @@ Xcode で MultiAI プロジェクトを開く → 左のプロジェクト名を
 |--------|------|------------------|
 | `OPENAI_MODEL` | 使う OpenAI モデル | `gpt-4o-mini` |
 | `GEMINI_MODEL` | 使う Gemini モデル | `gemini-3-flash-preview` |
-| `MONTHLY_MESSAGE_LIMIT` | 1ユーザーあたり月のメッセージ上限 | `2000` |
+| `MONTHLY_MESSAGE_LIMIT` | 1ユーザーあたり月のメッセージ上限 | `3000` |
 | `NODE_ENV` | 本番かどうか | 未設定なら `development`。本番なら `production` を入れておくとよい |
 
 ---
