@@ -284,6 +284,7 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       responseStyle,
       images: attachmentsList,
       onChunk: (provider, delta) => {
+        if (delta === 'openai' || delta === 'gemini') return; // プロバイダー名だけのチャンクは送らない
         sendSSE(res, 'chunk', { provider, delta });
       },
       onDone: async (provider, content, error) => {
