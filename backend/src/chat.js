@@ -18,7 +18,11 @@ function buildMessages(history) {
 
 /** パーソナライズを反映した system 文 */
 function buildSystemContent(profile, responseStyle) {
-  let base = 'You are a helpful assistant in a group chat. Reply concisely in the same language as the user.';
+  let base = [
+    'You are a helpful assistant in a group chat. Reply in the same language as the user.',
+    'Use the full conversation history: the user\'s latest message continues the topic just above. Do not ask "what would you like to know?" or "what do you mean?" when the user already stated their intent (e.g. "I want to know why X is trending" means answer about X).',
+    'Answer directly based on the most recent user message and the preceding context. For current events or trends the user mentions, give a concrete answer if you know it, or say you are not sure; avoid deflecting with clarifying questions.',
+  ].join(' ');
   if (profile && profile.trim()) base += `\n[User profile: ${profile.trim()}]`;
   if (responseStyle && responseStyle.trim()) base += `\n[Response style: ${responseStyle.trim()}]`;
   return base;
