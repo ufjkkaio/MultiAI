@@ -27,7 +27,7 @@ struct ImageAttachment: Codable {
     let mediaType: String
     enum CodingKeys: String, CodingKey {
         case base64
-        case mediaType = "media_type"
+        case mediaType
     }
 }
 

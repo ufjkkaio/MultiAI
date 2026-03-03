@@ -105,10 +105,17 @@ async function callGeminiStream(messages, onChunk, systemContent, lastMessageIma
   let full = '';
   for await (const chunk of result.stream) {
     const text = (typeof chunk.text === 'function' ? chunk.text() : chunk.text) || '';
-    if (text) {
+    if (!text) continue;
+    // SDK が累積テキストを返す場合があるため、増分だけを送る
+    let delta;
+    if ((full === '' || text.startsWith(full)) && text.length >= full.length) {
+      delta = text.slice(full.length);
+      full = text;
+    } else {
+      delta = text;
       full += text;
-      onChunk('gemini', text);
     }
+    if (delta) onChunk('gemini', delta);
   }
   return full.trim();
 }
