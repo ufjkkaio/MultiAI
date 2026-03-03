@@ -288,14 +288,14 @@ struct ChatView: View {
         var attachmentsPayload: [AttachmentPayload] = []
         for data in selectedImageDatas {
             guard let uiImage = UIImage(data: data) else { continue }
-            let maxSide: CGFloat = 1024
+            let maxSide: CGFloat = 384
             let scale = min(maxSide / max(uiImage.size.width, uiImage.size.height), 1)
             let size = CGSize(width: uiImage.size.width * scale, height: uiImage.size.height * scale)
             UIGraphicsBeginImageContextWithOptions(size, true, 1)
             uiImage.draw(in: CGRect(origin: .zero, size: size))
             let resized = UIGraphicsGetImageFromCurrentImageContext()
             UIGraphicsEndImageContext()
-            if let jpeg = (resized ?? uiImage).jpegData(compressionQuality: 0.8) {
+            if let jpeg = (resized ?? uiImage).jpegData(compressionQuality: 0.4) {
                 attachmentsPayload.append(AttachmentPayload(image_base64: jpeg.base64EncodedString(), image_media_type: "image/jpeg"))
             }
         }
