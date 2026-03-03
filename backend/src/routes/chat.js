@@ -1,5 +1,6 @@
 const express = require('express');
 const pdfParse = require('pdf-parse');
+const sharp = require('sharp');
 const { query } = require('../db');
 const { getResponsesStreamingRealtime, parseProviders, callGeminiWithModel, buildSystemContent } = require('../chat');
 const config = require('../config');
@@ -189,6 +190,8 @@ function sendSSE(res, event, data) {
 const MAX_ATTACHMENT_BASE64_LENGTH = 6 * 1024 * 1024; // ~4.5MB raw 想定（1枚あたり）
 const MAX_ATTACHMENTS = 5;
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+const AI_IMAGE_MAX_SIDE = 384;
+const AI_IMAGE_JPEG_QUALITY = 50;
 const MAX_FILE_BASE64_LENGTH = 2 * 1024 * 1024; // ファイル1つあたり約1.5MB想定
 const MAX_FILES = 3;
 const ALLOWED_FILE_TYPES = ['application/pdf', 'text/plain'];
@@ -261,6 +264,30 @@ function parseAttachments(body) {
     }
   }
   return [];
+}
+
+/** 画像を AI 送信用にリサイズ（長辺 512px・JPEG）。軽量化で応答を短くする。失敗時は元のまま返す。 */
+async function resizeImagesForAI(attachments) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return attachments;
+  const out = [];
+  for (const a of attachments) {
+    if (!a || !a.base64 || !ALLOWED_IMAGE_TYPES.includes((a.media_type || '').toLowerCase())) {
+      out.push(a);
+      continue;
+    }
+    try {
+      const buf = Buffer.from(a.base64, 'base64');
+      const resized = await sharp(buf)
+        .resize(AI_IMAGE_MAX_SIDE, AI_IMAGE_MAX_SIDE, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: AI_IMAGE_JPEG_QUALITY })
+        .toBuffer();
+      out.push({ base64: resized.toString('base64'), media_type: 'image/jpeg' });
+    } catch (err) {
+      console.warn('resizeImagesForAI skip:', err?.message);
+      out.push(a);
+    }
+  }
+  return out;
 }
 
 router.post('/rooms/:roomId/messages', async (req, res) => {
@@ -342,11 +369,14 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
     });
 
     const contentForAI = content.trim() + (await buildFileTextSuffix(fileList));
+    const hasAttachments = attachmentsList.length > 0 || fileList.length > 0;
+    const imagesForAI = await resizeImagesForAI(attachmentsList);
     await getResponsesStreamingRealtime(contentForAI, history, {
       providers,
       profile,
       responseStyle,
-      images: attachmentsList,
+      images: imagesForAI,
+      timeoutMs: hasAttachments ? 90000 : undefined,
       onChunk: (provider, delta) => {
         if (delta === 'openai' || delta === 'gemini') return; // プロバイダー名だけのチャンクは送らない
         sendSSE(res, 'chunk', { provider, delta });

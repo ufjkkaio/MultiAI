@@ -220,8 +220,9 @@ function parseProviders(val) {
  * @param {string} [profile] - ユーザープロフィール（パーソナライズ）
  * @param {string} [responseStyle] - 返答スタイル（パーソナライズ）
  * @param {{ base64: string, media_type: string }[]} [images] - 添付画像（最大5枚）
+ * @param {number} [timeoutMs] - オーバーライド（省略時は AI_TIMEOUT_MS または 30 秒）
  */
-async function getResponsesStreamingRealtime(userMessage, history, { providers = DEFAULT_PROVIDERS, profile, responseStyle, images = [], onChunk, onDone }) {
+async function getResponsesStreamingRealtime(userMessage, history, { providers = DEFAULT_PROVIDERS, profile, responseStyle, images = [], onChunk, onDone, timeoutMs: timeoutOverride }) {
   const effective = Array.isArray(providers) && providers.length > 0 ? providers : DEFAULT_PROVIDERS;
   const messages = buildMessages(history);
   const imageList = Array.isArray(images) ? images.slice(0, 5) : [];
@@ -233,7 +234,9 @@ async function getResponsesStreamingRealtime(userMessage, history, { providers =
     : userMessage;
   const nextMessages = [...messages, { role: 'user', content: lastUserContent }];
   const lastMessageImages = imageList.map((img) => ({ base64: img.base64, mimeType: img.media_type }));
-  const timeoutMs = parseInt(process.env.AI_TIMEOUT_MS || '30000', 10);
+  const timeoutMs = timeoutOverride != null && Number.isFinite(timeoutOverride)
+    ? Math.max(10000, timeoutOverride)
+    : parseInt(process.env.AI_TIMEOUT_MS || '30000', 10);
   const systemContent = buildSystemContent(profile, responseStyle);
 
   const runOpenAI = async () => {
