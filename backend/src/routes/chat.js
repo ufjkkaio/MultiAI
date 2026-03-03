@@ -130,15 +130,12 @@ router.get('/rooms/:roomId/messages', async (req, res) => {
     if (check.rows.length === 0) return res.status(404).json({ error: 'Room not found' });
 
     const r = await query(
-      'SELECT id, role, provider, content, expanded_from_id, attachments, attachment_base64, attachment_media_type, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC',
+      'SELECT id, role, provider, content, expanded_from_id, attachments, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC',
       [roomId]
     );
     const messages = r.rows.map((row) => {
-      const attachments = row.attachments && (Array.isArray(row.attachments) ? row.attachments.length > 0 : true)
-        ? row.attachments
-        : (row.attachment_base64 ? [{ base64: row.attachment_base64, media_type: row.attachment_media_type || 'image/jpeg' }] : []);
-      const { attachment_base64, attachment_media_type, ...rest } = row;
-      return { ...rest, attachments: attachments || [] };
+      const attachments = Array.isArray(row.attachments) ? row.attachments : [];
+      return { ...row, attachments };
     });
     res.json({ messages });
   } catch (err) {
