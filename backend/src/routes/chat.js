@@ -174,9 +174,16 @@ router.get('/rooms/:roomId/messages', async (req, res) => {
   }
 });
 
+// プロキシ/Node のバッファを超えるよう、chunk 送信後にパディングを足して送信を促す（同時に届く現象の緩和）
+const SSE_CHUNK_PADDING = 4096;
+
 function sendSSE(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   if (typeof res.flush === 'function') res.flush();
+  if (event === 'chunk') {
+    res.write(': ' + ' '.repeat(Math.max(0, SSE_CHUNK_PADDING - 2)) + '\n\n');
+    if (typeof res.flush === 'function') res.flush();
+  }
 }
 
 const MAX_ATTACHMENT_BASE64_LENGTH = 6 * 1024 * 1024; // ~4.5MB raw 想定（1枚あたり）
