@@ -130,11 +130,22 @@ router.get('/rooms/:roomId/messages', async (req, res) => {
     if (check.rows.length === 0) return res.status(404).json({ error: 'Room not found' });
 
     const r = await query(
-      'SELECT id, role, provider, content, expanded_from_id, attachments, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC',
+      'SELECT id, role, provider, content, expanded_from_id, attachments, attachment_base64, attachment_media_type, created_at FROM messages WHERE room_id = $1 ORDER BY created_at ASC',
       [roomId]
     );
     const messages = r.rows.map((row) => {
-      const attachments = Array.isArray(row.attachments) ? row.attachments : [];
+      let attachments = [];
+      const rawAttachments = Array.isArray(row.attachments) ? row.attachments : [];
+      if (rawAttachments.length > 0) {
+        attachments = rawAttachments
+          .filter((a) => a && (a.base64 || a.image_base64))
+          .map((a) => ({
+            base64: String(a.base64 ?? a.image_base64 ?? ''),
+            media_type: String(a.media_type ?? a.mediaType ?? 'image/jpeg'),
+          }));
+      } else if (row.attachment_base64) {
+        attachments = [{ base64: String(row.attachment_base64), media_type: String(row.attachment_media_type || 'image/jpeg') }];
+      }
       const createdAt = row.created_at instanceof Date
         ? row.created_at.toISOString()
         : (row.created_at ?? null);
@@ -142,7 +153,7 @@ router.get('/rooms/:roomId/messages', async (req, res) => {
         id: row.id,
         role: row.role,
         provider: row.provider ?? null,
-        content: row.content ?? '',
+        content: String(row.content ?? ''),
         expanded_from_id: row.expanded_from_id ?? null,
         created_at: createdAt,
         attachments,
