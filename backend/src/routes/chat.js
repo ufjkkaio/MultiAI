@@ -327,9 +327,14 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       });
     }
 
-    // 会話履歴: 今回のユーザー送信「前」のメッセージのみ取得（新メッセージはこのあと INSERT し、API には履歴＋新メッセージを渡す）
+    // 会話履歴: 直近40件を取得（古い順でAPIに渡す）。ASC LIMIT 40だと「古い方から40件」になり直前の会話が消えるため、サブクエリで直近40件を取ってから昇順に並べる
     const hist = await query(
-      'SELECT role, provider, content FROM messages WHERE room_id = $1 ORDER BY created_at ASC LIMIT 40',
+      `SELECT role, provider, content FROM (
+        SELECT role, provider, content, created_at FROM messages
+        WHERE room_id = $1
+        ORDER BY created_at DESC
+        LIMIT 40
+      ) AS recent ORDER BY created_at ASC`,
       [roomId]
     );
     const history = hist.rows.map((row) => ({
@@ -444,8 +449,14 @@ router.get('/rooms/:roomId/messages/stream', async (req, res) => {
     if (msgRows.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
     const msg = msgRows.rows[0];
 
+    // 対象ユーザーメッセージより前の直近40件（直前の会話を含めるため DESC LIMIT 40 で取得してから昇順に並べる）
     const hist = await query(
-      'SELECT role, content FROM messages WHERE room_id = $1 AND created_at < $2 ORDER BY created_at ASC LIMIT 40',
+      `SELECT role, content FROM (
+        SELECT role, content, created_at FROM messages
+        WHERE room_id = $1 AND created_at < $2
+        ORDER BY created_at DESC
+        LIMIT 40
+      ) AS recent ORDER BY created_at ASC`,
       [roomId, msg.created_at]
     );
     const history = hist.rows.map((r) => ({
