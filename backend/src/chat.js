@@ -9,11 +9,30 @@ const genAI = config.gemini.apiKey
   ? new GoogleGenerativeAI(config.gemini.apiKey)
   : null;
 
+/**
+ * 会話履歴を API 用の messages 配列に変換する。
+ * 形式: [{ role: "user" | "assistant", content: "..." }, ...]
+ * 連続する assistant は 1 つにまとめ、user/assistant のターンが分かりやすくなるようにする。
+ */
 function buildMessages(history) {
-  return history.map((m) => ({
+  if (!Array.isArray(history) || history.length === 0) return [];
+  const normalized = history.map((m) => ({
     role: m.role === 'assistant' ? 'assistant' : 'user',
-    content: m.content,
+    content: String(m.content ?? '').trim() || '(なし)',
   }));
+  const merged = [];
+  for (const m of normalized) {
+    if (m.role === 'user') {
+      merged.push(m);
+    } else {
+      if (merged.length > 0 && merged[merged.length - 1].role === 'assistant') {
+        merged[merged.length - 1].content += '\n\n' + m.content;
+      } else {
+        merged.push({ ...m });
+      }
+    }
+  }
+  return merged;
 }
 
 /** パーソナライズを反映した system 文 */
@@ -228,6 +247,7 @@ function parseProviders(val) {
  */
 async function getResponsesStreamingRealtime(userMessage, history, { providers = DEFAULT_PROVIDERS, profile, responseStyle, images = [], onChunk, onDone, timeoutMs: timeoutOverride }) {
   const effective = Array.isArray(providers) && providers.length > 0 ? providers : DEFAULT_PROVIDERS;
+  // 履歴＋今回のユーザー入力をまとめた messages: [{ role: "user"|"assistant", content: "..." }, ...]
   const messages = buildMessages(history);
   const imageList = Array.isArray(images) ? images.slice(0, 5) : [];
   const lastUserContent = imageList.length > 0

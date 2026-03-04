@@ -327,13 +327,14 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       });
     }
 
+    // 会話履歴: 今回のユーザー送信「前」のメッセージのみ取得（新メッセージはこのあと INSERT し、API には履歴＋新メッセージを渡す）
     const hist = await query(
       'SELECT role, provider, content FROM messages WHERE room_id = $1 ORDER BY created_at ASC LIMIT 40',
       [roomId]
     );
     const history = hist.rows.map((row) => ({
       role: row.role,
-      content: row.content,
+      content: String(row.content ?? '').trim() || '(なし)',
     }));
 
     let profile = '';
@@ -447,7 +448,10 @@ router.get('/rooms/:roomId/messages/stream', async (req, res) => {
       'SELECT role, content FROM messages WHERE room_id = $1 AND created_at < $2 ORDER BY created_at ASC LIMIT 40',
       [roomId, msg.created_at]
     );
-    const history = hist.rows.map((r) => ({ role: r.role, content: r.content }));
+    const history = hist.rows.map((r) => ({
+      role: r.role,
+      content: String(r.content ?? '').trim() || '(なし)',
+    }));
 
     const rawAttachments = msg.attachments || [];
     const imageList = Array.isArray(rawAttachments)
