@@ -5,11 +5,13 @@ struct MainTabView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @State private var showSideMenu = false
     @State private var showPaywall = false
+    @State private var chatPath: [Room] = []
+    @State private var showSearchSheet = false
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $chatPath) {
             ZStack {
-                ChatRoomListView()
+                ChatRoomListView(path: $chatPath, showSearchSheet: $showSearchSheet)
                     .navigationTitle("チャット")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -23,12 +25,21 @@ struct MainTabView: View {
                             }
                         }
                         ToolbarItem(placement: .topBarTrailing) {
-                            if !appState.isSubscribed {
+                            HStack(spacing: 12) {
                                 Button {
-                                    showPaywall = true
+                                    showSearchSheet = true
                                 } label: {
-                                    Image(systemName: "crown.fill")
-                                        .foregroundStyle(AppTheme.accent)
+                                    Image(systemName: "magnifyingglass")
+                                        .font(.title3)
+                                        .foregroundStyle(AppTheme.textPrimary)
+                                }
+                                if !appState.isSubscribed {
+                                    Button {
+                                        showPaywall = true
+                                    } label: {
+                                        Image(systemName: "crown.fill")
+                                            .foregroundStyle(AppTheme.accent)
+                                    }
                                 }
                             }
                         }

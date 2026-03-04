@@ -48,6 +48,45 @@ router.get('/rooms', async (req, res) => {
   }
 });
 
+/** メッセージ検索: 自分のルーム内の content を ILIKE で検索。q は1文字以上。最大50件。 */
+function escapeIlikePattern(s) {
+  if (typeof s !== 'string') return '';
+  return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+router.get('/search', async (req, res) => {
+  try {
+    const q = typeof req.query?.q === 'string' ? req.query.q.trim() : '';
+    if (q.length === 0) {
+      return res.json({ results: [] });
+    }
+    const pattern = '%' + escapeIlikePattern(q) + '%';
+    const limit = 50;
+    const r = await query(
+      `SELECT m.id AS message_id, m.room_id, m.role, m.provider, m.content, m.created_at, r.name AS room_name
+       FROM messages m
+       INNER JOIN rooms r ON r.id = m.room_id AND r.user_id = $1
+       WHERE m.content ILIKE $2
+       ORDER BY m.created_at DESC
+       LIMIT $3`,
+      [req.userId, pattern, limit]
+    );
+    const results = r.rows.map((row) => ({
+      message_id: row.message_id,
+      room_id: row.room_id,
+      room_name: row.room_name ?? '',
+      role: row.role,
+      provider: row.provider,
+      content: row.content,
+      created_at: row.created_at == null ? null : (row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)),
+    }));
+    res.json({ results });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to search messages' });
+  }
+});
+
 router.post('/rooms', async (req, res) => {
   try {
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';

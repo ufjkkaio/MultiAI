@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct ChatRoomListView: View {
+    @Binding var path: [Room]
+    @Binding var showSearchSheet: Bool
     @EnvironmentObject var appState: AppState
     @State private var rooms: [Room] = []
     @State private var showCreateSheet = false
@@ -20,6 +22,16 @@ struct ChatRoomListView: View {
         .background(AppTheme.background)
         .scrollContentBackground(.hidden)
         .onAppear { loadRooms() }
+        .sheet(isPresented: $showSearchSheet) {
+            MessageSearchSheet(
+                onSelectRoom: { room in
+                    showSearchSheet = false
+                    path.append(room)
+                },
+                onDismiss: { showSearchSheet = false }
+            )
+            .environmentObject(appState)
+        }
         .sheet(isPresented: $showCreateSheet) {
             CreateRoomSheet(
                 onCreate: { name in
@@ -254,4 +266,139 @@ struct CreateRoomSheet: View {
 
 struct RoomsResponse: Codable {
     let rooms: [Room]
+}
+
+struct MessageSearchSheet: View {
+    @EnvironmentObject var appState: AppState
+    @State private var query = ""
+    @State private var results: [MessageSearchResult] = []
+    @State private var isSearching = false
+    let onSelectRoom: (Room) -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(AppTheme.textSecondary)
+                    TextField("メッセージを検索", text: $query)
+                        .textFieldStyle(.plain)
+                        .autocorrectionDisabled()
+                        .onSubmit { runSearch() }
+                }
+                .padding(12)
+                .background(AppTheme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal)
+
+                if isSearching {
+                    ProgressView()
+                        .padding(.top, 24)
+                } else if results.isEmpty && !query.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Text("該当するメッセージがありません")
+                        .font(AppTheme.bodyFont)
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .padding(.top, 24)
+                } else {
+                    List {
+                        ForEach(results) { r in
+                            Button {
+                                let room = Room(id: r.roomId, name: r.roomName, createdAt: r.createdAt)
+                                onSelectRoom(room)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Text(roomDisplayName(r.roomName, id: r.roomId))
+                                            .font(AppTheme.captionFont)
+                                            .foregroundStyle(AppTheme.accent)
+                                        Spacer()
+                                        if let created = r.createdAt {
+                                            Text(formatDate(created))
+                                                .font(AppTheme.captionFont)
+                                                .foregroundStyle(AppTheme.textSecondary)
+                                        }
+                                    }
+                                    Text(r.content)
+                                        .font(AppTheme.bodyFont)
+                                        .foregroundStyle(AppTheme.textPrimary)
+                                        .lineLimit(3)
+                                }
+                                .padding(.vertical, 4)
+                            }
+                            .listRowBackground(AppTheme.surface)
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 16)
+            .background(AppTheme.background)
+            .navigationTitle("メッセージ検索")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { onDismiss() }
+                        .foregroundStyle(AppTheme.textPrimary)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("検索") { runSearch() }
+                        .fontWeight(.semibold)
+                        .foregroundStyle(AppTheme.accent)
+                }
+            }
+            .onAppear {
+                if !query.isEmpty { runSearch() }
+            }
+        }
+    }
+
+    private func roomDisplayName(_ name: String, id: String) -> String {
+        if !name.isEmpty { return name }
+        return String(id.prefix(8)) + "..."
+    }
+
+    private func formatDate(_ iso: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var date = formatter.date(from: iso)
+        if date == nil {
+            formatter.formatOptions = [.withInternetDateTime]
+            date = formatter.date(from: iso)
+        }
+        guard let d = date else { return iso }
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        f.locale = Locale(identifier: "ja_JP")
+        return f.string(from: d)
+    }
+
+    private func runSearch() {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty, let token = appState.authToken else {
+            results = []
+            return
+        }
+        guard let url = URL(string: APIClient.baseURL + "/chat/search?q=" + q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!) else { return }
+        var req = URLRequest(url: url)
+        req.allHTTPHeaderFields = APIClient.authHeader(token)
+        isSearching = true
+        Task {
+            do {
+                let (data, _) = try await URLSession.shared.data(for: req)
+                let res = try JSONDecoder().decode(MessageSearchResponse.self, from: data)
+                await MainActor.run {
+                    results = res.results
+                    isSearching = false
+                }
+            } catch {
+                await MainActor.run {
+                    results = []
+                    isSearching = false
+                }
+            }
+        }
+    }
 }

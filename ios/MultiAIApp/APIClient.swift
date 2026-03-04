@@ -102,3 +102,25 @@ struct ChunkEvent: Codable {
     let provider: String
     let delta: String
 }
+
+struct MessageSearchResult: Codable, Identifiable {
+    let messageId: String
+    let roomId: String
+    let roomName: String
+    let role: String
+    let provider: String?
+    let content: String
+    let createdAt: String?
+    var id: String { messageId }
+    enum CodingKeys: String, CodingKey {
+        case messageId = "message_id"
+        case roomId = "room_id"
+        case roomName = "room_name"
+        case role, provider, content
+        case createdAt = "created_at"
+    }
+}
+
+struct MessageSearchResponse: Codable {
+    let results: [MessageSearchResult]
+}
