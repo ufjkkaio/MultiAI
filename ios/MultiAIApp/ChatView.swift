@@ -24,6 +24,7 @@ struct ChatView: View {
     @State private var errorMessage: String?
     @FocusState private var isInputFocused: Bool
     @State private var showEditNameSheet = false
+    @State private var showCopiedFeedback = false
     @State private var scrollTrigger = UUID()
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var selectedImageDatas: [Data] = []
@@ -71,6 +72,24 @@ struct ChatView: View {
         .toolbarBackground(AppTheme.background, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .preferredColorScheme(.light)
+        .overlay {
+            if showCopiedFeedback {
+                VStack {
+                    Text("コピーしました")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.textSecondary.opacity(0.95))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(AppTheme.surface.opacity(0.95))
+                        .clipShape(Capsule())
+                        .padding(.top, 56)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(false)
+                .animation(.easeInOut(duration: 0.2), value: showCopiedFeedback)
+            }
+        }
         .onAppear { loadMessages() }
         .sheet(isPresented: $showEditNameSheet) {
             EditRoomNameSheet(
@@ -93,8 +112,17 @@ struct ChatView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     ForEach(messages) { msg in
-                        MessageRow(message: msg)
-                            .id(msg.id)
+                        MessageRow(
+                            message: msg,
+                            onCopy: {
+                                showCopiedFeedback = true
+                                Task { @MainActor in
+                                    try? await Task.sleep(for: .seconds(1.5))
+                                    showCopiedFeedback = false
+                                }
+                            }
+                        )
+                        .id(msg.id)
                     }
                 }
                 .padding()
@@ -442,22 +470,45 @@ struct ChatView: View {
 
 struct MessageRow: View {
     let message: Message
+    var onCopy: (() -> Void)?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 6) {
             if message.role == "user" {
                 Spacer(minLength: 60)
             } else {
+                copyButton
                 providerBadge
             }
 
             messageBubble
+                .onLongPressGesture(minimumDuration: 0.5) { copyContent() }
 
-            if message.role != "user" {
+            if message.role == "user" {
+                copyButton
+            } else {
                 Spacer(minLength: 60)
             }
         }
         .animation(.easeOut(duration: 0.2), value: message.id)
+    }
+
+    private func copyContent() {
+        let text = message.content.isEmpty ? "(添付のみ)" : message.content
+        UIPasteboard.general.string = text
+        onCopy?()
+    }
+
+    private var copyButton: some View {
+        Button {
+            copyContent()
+        } label: {
+            Image(systemName: "doc.on.doc")
+                .font(.system(size: 14))
+                .foregroundStyle(AppTheme.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 10)
     }
 
     @ViewBuilder

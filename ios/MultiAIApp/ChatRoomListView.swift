@@ -319,9 +319,8 @@ struct MessageSearchSheet: View {
                                                 .foregroundStyle(AppTheme.textSecondary)
                                         }
                                     }
-                                    Text(r.content)
+                                    highlightedText(content: r.content, query: query, baseColor: AppTheme.textPrimary, highlightColor: AppTheme.accent)
                                         .font(AppTheme.bodyFont)
-                                        .foregroundStyle(AppTheme.textPrimary)
                                         .lineLimit(3)
                                 }
                                 .padding(.vertical, 4)
@@ -352,6 +351,34 @@ struct MessageSearchSheet: View {
                 if !query.isEmpty { runSearch() }
             }
         }
+    }
+
+    /// 検索語に色をつけて目立たせる（大文字小文字区別なし）。iOS 26 の Text + 非推奨を避けて AttributedString を使用。
+    private func highlightedText(content: String, query: String, baseColor: Color, highlightColor: Color) -> Text {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return Text(content) }
+        var segments: [(String, Bool)] = []
+        var remaining = content
+        while let range = remaining.range(of: q, options: .caseInsensitive) {
+            let before = String(remaining[..<range.lowerBound])
+            let match = String(remaining[range])
+            if !before.isEmpty { segments.append((before, false)) }
+            if !match.isEmpty { segments.append((match, true)) }
+            remaining = String(remaining[range.upperBound...])
+        }
+        if !remaining.isEmpty { segments.append((remaining, false)) }
+        guard !segments.isEmpty else { return Text(content) }
+        var result = AttributedString()
+        for (str, isMatch) in segments {
+            var segment = AttributedString(str)
+            if isMatch {
+                segment.foregroundColor = highlightColor
+                segment.backgroundColor = highlightColor.opacity(0.35)
+                segment.font = .body.weight(.bold)
+            }
+            result.append(segment)
+        }
+        return Text(result)
     }
 
     private func roomDisplayName(_ name: String, id: String) -> String {

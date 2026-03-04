@@ -34,7 +34,10 @@ async function checkAndIncrementUsage(userId) {
 router.get('/rooms', async (req, res) => {
   try {
     const r = await query(
-      'SELECT id, name, COALESCE(selected_providers, \'["openai","gemini"]\') AS selected_providers, created_at FROM rooms WHERE user_id = $1 ORDER BY created_at DESC',
+      `SELECT r.id, r.name, COALESCE(r.selected_providers, '["openai","gemini"]') AS selected_providers, r.created_at
+       FROM rooms r
+       WHERE r.user_id = $1
+       ORDER BY (SELECT MAX(m.created_at) FROM messages m WHERE m.room_id = r.id) DESC NULLS LAST, r.created_at DESC`,
       [req.userId]
     );
     const rooms = r.rows.map((row) => ({
