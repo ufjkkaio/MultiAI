@@ -327,15 +327,16 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       });
     }
 
-    // 会話履歴: 直近40件を取得（古い順でAPIに渡す）。ASC LIMIT 40だと「古い方から40件」になり直前の会話が消えるため、サブクエリで直近40件を取ってから昇順に並べる
+    // 会話履歴: 直近 N 件を取得（古い順でAPIに渡す）。件数は config.chatHistoryLimit でコストと文脈のバランスを調整
+    const historyLimit = config.chatHistoryLimit;
     const hist = await query(
       `SELECT role, provider, content FROM (
         SELECT role, provider, content, created_at FROM messages
         WHERE room_id = $1
         ORDER BY created_at DESC
-        LIMIT 40
+        LIMIT $2
       ) AS recent ORDER BY created_at ASC`,
-      [roomId]
+      [roomId, historyLimit]
     );
     const history = hist.rows.map((row) => ({
       role: row.role,
@@ -449,15 +450,16 @@ router.get('/rooms/:roomId/messages/stream', async (req, res) => {
     if (msgRows.rows.length === 0) return res.status(404).json({ error: 'Message not found' });
     const msg = msgRows.rows[0];
 
-    // 対象ユーザーメッセージより前の直近40件（直前の会話を含めるため DESC LIMIT 40 で取得してから昇順に並べる）
+    // 対象ユーザーメッセージより前の直近 N 件（config.chatHistoryLimit）
+    const historyLimit = config.chatHistoryLimit;
     const hist = await query(
       `SELECT role, content FROM (
         SELECT role, content, created_at FROM messages
         WHERE room_id = $1 AND created_at < $2
         ORDER BY created_at DESC
-        LIMIT 40
+        LIMIT $3
       ) AS recent ORDER BY created_at ASC`,
-      [roomId, msg.created_at]
+      [roomId, msg.created_at, historyLimit]
     );
     const history = hist.rows.map((r) => ({
       role: r.role,
