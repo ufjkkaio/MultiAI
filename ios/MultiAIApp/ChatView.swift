@@ -482,7 +482,6 @@ struct MessageRow: View {
             }
 
             messageBubble
-                .onLongPressGesture(minimumDuration: 0.5) { copyContent() }
 
             if message.role == "user" {
                 copyButton
@@ -527,6 +526,7 @@ struct MessageRow: View {
                 Text(message.content)
                     .font(AppTheme.bodyFont)
                     .foregroundStyle(message.role == "user" ? .white : AppTheme.textPrimary)
+                    .textSelection(.enabled)
             }
         }
         .padding(.horizontal, 16)

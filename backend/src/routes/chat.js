@@ -22,7 +22,18 @@ async function checkSubscription(userId) {
   return r.rows[0]?.is_active === true;
 }
 
-async function checkAndIncrementUsage(userId) {
+/** 現在の利用数を取得 */
+async function getCurrentUsage(userId) {
+  const period = getCurrentPeriod();
+  const r = await query(
+    'SELECT count FROM usage_counts WHERE user_id = $1 AND period = $2',
+    [userId, period]
+  );
+  return (r.rows[0]?.count ?? 0) | 0;
+}
+
+/** 利用数を1増やし、増やした後の値を返す（上限チェック通過後にのみ呼ぶ） */
+async function incrementUsage(userId) {
   const period = getCurrentPeriod();
   const r = await query(
     'INSERT INTO usage_counts (user_id, period, count) VALUES ($1, $2, 1) ON CONFLICT (user_id, period) DO UPDATE SET count = usage_counts.count + 1 RETURNING count',
@@ -361,13 +372,14 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       return res.status(403).json({ error: 'Subscription required', code: 'SUBSCRIPTION_REQUIRED' });
     }
 
-    const count = await checkAndIncrementUsage(req.userId);
-    if (count > config.monthlyMessageLimit) {
+    const count = await getCurrentUsage(req.userId);
+    if (count >= config.monthlyMessageLimit) {
       return res.status(429).json({
         error: 'Monthly limit reached',
         code: 'MONTHLY_LIMIT_REACHED',
       });
     }
+    await incrementUsage(req.userId);
 
     // 会話履歴: 直近 N 件を取得（古い順でAPIに渡す）。件数は config.chatHistoryLimit でコストと文脈のバランスを調整
     const historyLimit = config.chatHistoryLimit;
