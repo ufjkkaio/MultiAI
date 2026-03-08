@@ -7,7 +7,8 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "db:init": "node scripts/run-schema.js",
-    "db:migrate-room-name": "node scripts/run-migration-add-room-name.js"
+    "db:migrate-room-name": "node scripts/run-migration-add-room-name.js",
+    "reset-usage": "node scripts/reset-usage.js"
   },
   "engines": {
     "node": ">=18"
