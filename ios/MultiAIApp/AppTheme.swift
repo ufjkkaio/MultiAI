@@ -2,22 +2,22 @@ import SwiftUI
 
 /// アプリ全体のデザインシステム
 enum AppTheme {
-    // MARK: - カラー（白・グレー基調）
-    static let background = Color(hex: "FAFAFA")
+    // MARK: - カラー（スレート＋インディゴアクセント）
+    static let background = Color(hex: "F8FAFC")
     static let surface = Color.white
-    static let surfaceElevated = Color(hex: "F5F5F5")
-    static let accent = Color(hex: "525252")
-    static let accentSecondary = Color(hex: "737373")
-    static let textPrimary = Color(hex: "171717")
-    static let textSecondary = Color(hex: "737373")
-    static let userBubble = Color(hex: "525252")
-    static let aiBubble = Color(hex: "E5E5E5")
+    static let surfaceElevated = Color(hex: "F1F5F9")
+    static let accent = Color(hex: "4F46E5")
+    static let accentSecondary = Color(hex: "6366F1")
+    static let textPrimary = Color(hex: "0F172A")
+    static let textSecondary = Color(hex: "64748B")
+    static let userBubble = Color(hex: "4F46E5")
+    static let aiBubble = Color(hex: "F1F5F9")
     static let errorRed = Color(hex: "DC2626")
     static let successGreen = Color(hex: "16A34A")
 
     // MARK: - フォント
     static let titleFont = Font.system(.title, design: .rounded).weight(.bold)
-    static let headlineFont = Font.system(.headline, design: .rounded)
+    static let headlineFont = Font.system(.headline, design: .rounded).weight(.semibold)
     static let bodyFont = Font.system(.body, design: .default)
     static let captionFont = Font.system(.caption, design: .rounded)
 }

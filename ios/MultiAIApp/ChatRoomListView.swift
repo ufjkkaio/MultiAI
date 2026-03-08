@@ -111,7 +111,7 @@ struct ChatRoomListView: View {
                                 .lineLimit(1)
 
                             if let created = room.createdAt {
-                                Text(formatDate(created))
+                                Text("作成日： \(formatDate(created))")
                                     .font(AppTheme.captionFont)
                                     .foregroundStyle(AppTheme.textSecondary)
                             }
