@@ -241,7 +241,7 @@ function sendSSE(res, event, data) {
 }
 
 const MAX_ATTACHMENT_BASE64_LENGTH = 6 * 1024 * 1024; // ~4.5MB raw 想定（1枚あたり）
-const MAX_ATTACHMENTS = 15; // 写真5 + PDFページ画像10など
+const MAX_ATTACHMENTS = 5;
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
 const AI_IMAGE_MAX_SIDE = 384;
 const AI_IMAGE_JPEG_QUALITY = 50;
