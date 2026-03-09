@@ -241,7 +241,7 @@ function sendSSE(res, event, data) {
 }
 
 const MAX_ATTACHMENT_BASE64_LENGTH = 6 * 1024 * 1024; // ~4.5MB raw 想定（1枚あたり）
-const MAX_ATTACHMENTS = 5;
+const MAX_ATTACHMENTS = 15; // 写真5 + PDFページ画像10など
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
 const AI_IMAGE_MAX_SIDE = 384;
 const AI_IMAGE_JPEG_QUALITY = 50;
@@ -281,7 +281,8 @@ async function buildFileTextSuffix(files) {
         const buf = Buffer.from(f.base64, 'base64');
         const data = await pdfParse(buf);
         let text = (data && data.text && data.text.trim()) ? data.text.trim() : '';
-        const maxChars = 80000;
+        // 写真の解像度制限と同様に「AIに渡す量」を抑える。全ページは解析するが送信は先頭N文字までで応答を軽くする
+        const maxChars = 40000;
         if (text.length > maxChars) text = text.slice(0, maxChars) + '\n\n(続きは省略しました)';
         parts.push(text ? `\n\n[PDF: ${f.filename}]\n${text}` : `\n\n[PDF: ${f.filename}]\n(テキストを抽出できませんでした)`);
       } catch (err) {
@@ -344,6 +345,7 @@ async function resizeImagesForAI(attachments) {
 }
 
 router.post('/rooms/:roomId/messages', async (req, res) => {
+  let heartbeatId = null;
   try {
     const { roomId } = req.params;
     const { content, providers: bodyProviders } = req.body;
@@ -440,6 +442,14 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       created_at: userMessageRow.created_at,
     });
 
+    // ファイル・画像処理中に接続が切れないようハートビート（コメント行を定期送信）
+    heartbeatId = setInterval(() => {
+      try {
+        res.write(': \n\n');
+        if (typeof res.flush === 'function') res.flush();
+      } catch (_) {}
+    }, 12000);
+
     const contentForAI = content.trim() + (await buildFileTextSuffix(fileList));
     const hasAttachments = attachmentsList.length > 0 || fileList.length > 0;
     const imagesForAI = await resizeImagesForAI(attachmentsList);
@@ -450,6 +460,7 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       images: imagesForAI,
       timeoutMs: hasAttachments ? 90000 : undefined,
       onChunk: (provider, delta) => {
+        clearInterval(heartbeatId);
         if (delta === 'openai' || delta === 'gemini') return; // プロバイダー名だけのチャンクは送らない
         sendSSE(res, 'chunk', { provider, delta });
       },
@@ -468,14 +479,17 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       },
     });
 
+    clearInterval(heartbeatId);
     sendSSE(res, 'done', {});
     res.end();
   } catch (err) {
     console.error(err);
+    if (heartbeatId) clearInterval(heartbeatId);
     if (!res.headersSent) {
       res.status(500).json({ error: 'Failed to send message' });
     } else {
       sendSSE(res, 'error', { error: err.message });
+      sendSSE(res, 'done', {}); // クライアントが loadMessages できるよう必ず送る
       res.end();
     }
   }

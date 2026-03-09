@@ -459,6 +459,7 @@ struct ChatView: View {
                 if let e = try? JSONDecoder().decode(ProviderError.self, from: data) {
                     errorMessage = "\(e.provider): \(e.error)"
                 }
+                loadMessages() // 保存済みメッセージを表示するため再取得
             case "done":
                 loadMessages()
             default:
