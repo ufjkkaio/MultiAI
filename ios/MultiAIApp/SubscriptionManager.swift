@@ -8,6 +8,7 @@ private let subscriptionProductId = "multiAI.MultiAI.monthly"
 @MainActor
 final class SubscriptionManager: ObservableObject {
     @Published var isActive: Bool = false
+    @Published var freeRemaining: Int? = nil
     @Published var products: [Product] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
@@ -47,6 +48,7 @@ final class SubscriptionManager: ObservableObject {
             let res = try JSONDecoder().decode(SubscriptionStatusResponse.self, from: data)
             await MainActor.run {
                 applySubscriptionState(res.isActive)
+                freeRemaining = res.freeRemaining
             }
         } catch {}
     }
@@ -142,4 +144,8 @@ final class SubscriptionManager: ObservableObject {
 
 struct SubscriptionStatusResponse: Codable {
     let isActive: Bool
+    let monthlyUsage: Int?
+    let monthlyLimit: Int?
+    let freeMessageAllowance: Int?
+    let freeRemaining: Int?
 }

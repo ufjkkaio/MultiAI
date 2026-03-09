@@ -82,7 +82,9 @@ Xcode で MultiAI プロジェクトを開く → 左のプロジェクト名を
 |--------|------|------------------|
 | `OPENAI_MODEL` | 使う OpenAI モデル | `gpt-4o-mini` |
 | `GEMINI_MODEL` | 使う Gemini モデル | `gemini-3-flash-preview` |
-| `MONTHLY_MESSAGE_LIMIT` | 1ユーザーあたり月のメッセージ上限 | `2000` |
+| `MONTHLY_MESSAGE_LIMIT` | 課金ユーザーの月あたりメッセージ上限 | `1200` |
+| `FREE_MESSAGE_ALLOWANCE` | 課金前の無料で使えるメッセージ数（月あたり・テキストのみ）。超えるとサブスク必須 | `6` |
+| `CHAT_HISTORY_LIMIT` | 会話履歴に含めるメッセージ件数（10往復＝30件） | `30` |
 | `NODE_ENV` | 本番かどうか | 未設定なら `development`。本番なら `production` を入れておくとよい |
 
 ---

@@ -370,16 +370,28 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       : parseProviders(roomCheck.rows[0].selected_providers);
 
     const subscribed = await checkSubscription(req.userId);
-    if (!subscribed) {
-      return res.status(403).json({ error: 'Subscription required', code: 'SUBSCRIPTION_REQUIRED' });
-    }
-
     const count = await getCurrentUsage(req.userId);
-    if (count >= config.monthlyMessageLimit) {
-      return res.status(429).json({
-        error: 'Monthly limit reached',
-        code: 'MONTHLY_LIMIT_REACHED',
-      });
+
+    if (!subscribed) {
+      if (mergedAttachments.length > 0) {
+        return res.status(403).json({
+          error: 'Attachments require subscription.',
+          code: 'ATTACHMENT_REQUIRED_SUBSCRIPTION',
+        });
+      }
+      if (count >= config.freeMessageAllowance) {
+        return res.status(403).json({
+          error: 'Free allowance used. Subscription required.',
+          code: 'SUBSCRIPTION_REQUIRED',
+        });
+      }
+    } else {
+      if (count >= config.monthlyMessageLimit) {
+        return res.status(429).json({
+          error: 'Monthly limit reached',
+          code: 'MONTHLY_LIMIT_REACHED',
+        });
+      }
     }
     await incrementUsage(req.userId);
 

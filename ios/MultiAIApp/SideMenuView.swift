@@ -26,9 +26,16 @@ struct SideMenuView: View {
                                     .font(AppTheme.captionFont)
                                     .foregroundStyle(AppTheme.successGreen)
                             } else {
-                                Text("無料プラン")
-                                    .font(AppTheme.captionFont)
-                                    .foregroundStyle(AppTheme.textSecondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("無料プラン")
+                                        .font(AppTheme.captionFont)
+                                        .foregroundStyle(AppTheme.textSecondary)
+                                    if let n = subscriptionManager.freeRemaining {
+                                        Text("あと\(n)通無料")
+                                            .font(.caption2)
+                                            .foregroundStyle(AppTheme.textSecondary)
+                                    }
+                                }
                             }
                         }
                         Spacer()

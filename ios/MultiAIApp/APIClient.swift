@@ -69,6 +69,7 @@ struct UserMessagePart: Codable, Sendable {
 
 struct ErrorBody: Codable, Sendable {
     let error: String?
+    let code: String?
 }
 
 struct UserMessageSSE: Codable {

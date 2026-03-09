@@ -27,7 +27,7 @@
   1. Railway に登録 → 新規プロジェクトで **PostgreSQL** と **Empty Service** を追加。
   2. リポジトリを GitHub に push → Railway で **Deploy from GitHub**（`backend` をルートまたはサブディレクトリとして指定）。
   3. **Variables** に設定:  
-     `DATABASE_URL`（PostgreSQL の参照）、`OPENAI_API_KEY`、`GEMINI_API_KEY`、`JWT_SECRET`（本番用に長いランダム文字列）、`APPLE_BUNDLE_ID`（iOS の Bundle ID と一致）、必要なら `MONTHLY_MESSAGE_LIMIT=2000`。
+     `DATABASE_URL`（PostgreSQL の参照）、`OPENAI_API_KEY`、`GEMINI_API_KEY`、`JWT_SECRET`（本番用に長いランダム文字列）、`APPLE_BUNDLE_ID`（iOS の Bundle ID と一致）、必要なら `MONTHLY_MESSAGE_LIMIT=1200`。
   4. Railway の PostgreSQL で **schema** を実行: `backend/schema.sql` の内容を Query/Data で実行。
   5. バックエンドの **Settings** で **Generate Domain** し、URL を取得（例: `https://xxx.up.railway.app`）。
 - **iOS 側**: 本番用ビルドでは `API_BASE_URL` を上記 URL に設定（Scheme の Environment Variables か、本番用 xcconfig などで切り替え）。

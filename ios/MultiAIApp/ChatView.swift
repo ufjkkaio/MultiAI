@@ -28,6 +28,7 @@ struct ChatView: View {
     @State private var scrollTrigger = UUID()
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var selectedImageDatas: [Data] = []
+    @State private var showAttachmentSubscriptionAlert = false
 
     init(roomId: String, roomName: String? = nil, onRoomUpdated: (() -> Void)? = nil) {
         self.roomId = roomId
@@ -104,6 +105,11 @@ struct ChatView: View {
                 },
                 onCancel: { showEditNameSheet = false }
             )
+        }
+        .alert("サブスクリプションが必要です", isPresented: $showAttachmentSubscriptionAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("写真・ファイルの添付はサブスクリプション登録後にご利用いただけます。")
         }
     }
 
@@ -196,25 +202,36 @@ struct ChatView: View {
                 .frame(height: 80)
             }
             HStack(alignment: .bottom, spacing: 10) {
-                PhotosPicker(
-                    selection: $selectedPhotoItems,
-                    maxSelectionCount: 5,
-                    matching: .images
-                ) {
-                    Image(systemName: "photo")
-                        .font(.title3)
-                        .foregroundStyle(AppTheme.textPrimary)
-                        .frame(width: 36, height: 36)
-                }
-                .onChange(of: selectedPhotoItems) { _, newItems in
-                    Task {
-                        var datas: [Data] = []
-                        for item in newItems {
-                            if let d = try? await item.loadTransferable(type: PickableImage.self)?.data {
-                                datas.append(d)
+                if appState.isSubscribed {
+                    PhotosPicker(
+                        selection: $selectedPhotoItems,
+                        maxSelectionCount: 5,
+                        matching: .images
+                    ) {
+                        Image(systemName: "photo")
+                            .font(.title3)
+                            .foregroundStyle(AppTheme.textPrimary)
+                            .frame(width: 36, height: 36)
+                    }
+                    .onChange(of: selectedPhotoItems) { _, newItems in
+                        Task {
+                            var datas: [Data] = []
+                            for item in newItems {
+                                if let d = try? await item.loadTransferable(type: PickableImage.self)?.data {
+                                    datas.append(d)
+                                }
                             }
+                            await MainActor.run { selectedImageDatas = datas }
                         }
-                        await MainActor.run { selectedImageDatas = datas }
+                    }
+                } else {
+                    Button {
+                        showAttachmentSubscriptionAlert = true
+                    } label: {
+                        Image(systemName: "photo")
+                            .font(.title3)
+                            .foregroundStyle(AppTheme.textPrimary)
+                            .frame(width: 36, height: 36)
                     }
                 }
                 TextField("メッセージを入力...", text: $inputText, axis: .vertical)
@@ -358,7 +375,11 @@ struct ChatView: View {
                     for try await byte in bytes { data.append(byte) }
                     let err = try? JSONDecoder().decode(ErrorBody.self, from: data)
                     await MainActor.run {
-                        errorMessage = err?.error ?? "サブスクリプションが必要です"
+                        if err?.code == "ATTACHMENT_REQUIRED_SUBSCRIPTION" {
+                            errorMessage = "写真・ファイル添付は課金後にご利用ください"
+                        } else {
+                            errorMessage = err?.error ?? "サブスクリプションが必要です"
+                        }
                         isSending = false
                     }
                     return

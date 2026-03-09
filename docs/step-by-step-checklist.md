@@ -106,7 +106,7 @@
      `OPENAI_API_KEY`、`GEMINI_API_KEY`、`OPENAI_MODEL`、`GEMINI_MODEL`、  
      `JWT_SECRET`（本番用にランダムな長い文字列）、  
      `APPLE_BUNDLE_ID`（iOS の Bundle ID と同じ、例 `com.yourname.multiai`）、  
-     （任意）`MONTHLY_MESSAGE_LIMIT`=2000
+     （任意）`MONTHLY_MESSAGE_LIMIT`=1200
 
 4. **DB にテーブルを作る**  
    Railway の PostgreSQL → **Data** または **Query** で、`backend/schema.sql` の中身を実行。
