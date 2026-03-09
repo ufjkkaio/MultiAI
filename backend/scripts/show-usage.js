@@ -1,7 +1,6 @@
 /**
- * 今月の利用数（usage_counts）を 0 にリセットする。
- * 使い方: cd backend && npm run reset-usage
- * ローカルでは secrets/.env の DATABASE_URL を使用。Railway では railway run npm run reset-usage
+ * 今月の利用数（usage_counts）を表示する。
+ * 使い方: cd backend && npm run show-usage
  */
 require('dotenv').config({ path: require('path').resolve(__dirname, '../secrets/.env') });
 const { Pool } = require('pg');
@@ -19,10 +18,20 @@ async function main() {
   });
   try {
     const r = await pool.query(
-      'UPDATE usage_counts SET count = 0 WHERE period = $1 RETURNING user_id',
+      'SELECT user_id, count FROM usage_counts WHERE period = $1 ORDER BY count DESC',
       [period]
     );
-    console.log(`今月（${period}）の利用数をリセットしました。${r.rowCount} 件更新。`);
+    console.log(`今月（${period}）の利用数:`);
+    if (r.rows.length === 0) {
+      console.log('  0 件（まだ送信なし）');
+      return;
+    }
+    let total = 0;
+    for (const row of r.rows) {
+      console.log(`  ${row.user_id}: ${row.count} 通`);
+      total += Number(row.count);
+    }
+    console.log(`  合計: ${total} 通（${r.rows.length} ユーザー）`);
   } finally {
     await pool.end();
   }
