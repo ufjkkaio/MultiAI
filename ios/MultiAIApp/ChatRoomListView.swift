@@ -3,6 +3,9 @@ import SwiftUI
 struct ChatRoomListView: View {
     @Binding var path: [Room]
     @Binding var showSearchSheet: Bool
+    @Binding var roomForFullScreen: Room?
+    var isPad: Bool
+
     @EnvironmentObject var appState: AppState
     @State private var rooms: [Room] = []
     @State private var showCreateSheet = false
@@ -26,7 +29,7 @@ struct ChatRoomListView: View {
             MessageSearchSheet(
                 onSelectRoom: { room in
                     showSearchSheet = false
-                    path.append(room)
+                    if isPad { roomForFullScreen = room } else { path.append(room) }
                 },
                 onDismiss: { showSearchSheet = false }
             )
@@ -95,38 +98,33 @@ struct ChatRoomListView: View {
     private var roomList: some View {
         List {
             ForEach(rooms) { room in
-                NavigationLink(value: room) {
-                    HStack(spacing: 14) {
-                        Image(systemName: "bubble.left.and.bubble.right.fill")
-                            .font(.title2)
-                            .foregroundStyle(AppTheme.accent)
-                            .frame(width: 40, height: 40)
-                            .background(AppTheme.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(roomDisplayName(room))
-                                .font(AppTheme.headlineFont)
-                                .foregroundStyle(AppTheme.textPrimary)
-                                .lineLimit(1)
-
-                            if let created = room.createdAt {
-                                Text("作成日： \(formatDate(created))")
-                                    .font(AppTheme.captionFont)
-                                    .foregroundStyle(AppTheme.textSecondary)
-                            }
-                        }
-                        Spacer()
-                    }
-                    .padding(.vertical, 4)
-                }
-                .listRowBackground(AppTheme.surface)
-                .listRowSeparatorTint(AppTheme.surfaceElevated)
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) {
-                        roomToDelete = room
+                if isPad {
+                    Button {
+                        roomForFullScreen = room
                     } label: {
-                        Label("削除", systemImage: "trash")
+                        roomRowContent(room)
+                    }
+                    .listRowBackground(AppTheme.surface)
+                    .listRowSeparatorTint(AppTheme.surfaceElevated)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            roomToDelete = room
+                        } label: {
+                            Label("削除", systemImage: "trash")
+                        }
+                    }
+                } else {
+                    NavigationLink(value: room) {
+                        roomRowContent(room)
+                    }
+                    .listRowBackground(AppTheme.surface)
+                    .listRowSeparatorTint(AppTheme.surfaceElevated)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            roomToDelete = room
+                        } label: {
+                            Label("削除", systemImage: "trash")
+                        }
                     }
                 }
             }
@@ -150,6 +148,32 @@ struct ChatRoomListView: View {
         .navigationDestination(for: Room.self) { room in
             ChatView(roomId: room.id, roomName: room.name, onRoomUpdated: { loadRooms() })
         }
+    }
+
+    private func roomRowContent(_ room: Room) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: "bubble.left.and.bubble.right.fill")
+                .font(.title2)
+                .foregroundStyle(AppTheme.accent)
+                .frame(width: 40, height: 40)
+                .background(AppTheme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(roomDisplayName(room))
+                    .font(AppTheme.headlineFont)
+                    .foregroundStyle(AppTheme.textPrimary)
+                    .lineLimit(1)
+
+                if let created = room.createdAt {
+                    Text("作成日： \(formatDate(created))")
+                        .font(AppTheme.captionFont)
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+            }
+            Spacer()
+        }
+        .padding(.vertical, 4)
     }
 
     private func roomDisplayName(_ room: Room) -> String {

@@ -7,11 +7,14 @@ struct MainTabView: View {
     @State private var showPaywall = false
     @State private var chatPath: [Room] = []
     @State private var showSearchSheet = false
+    @State private var roomForFullScreen: Room?
+
+    private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     var body: some View {
         NavigationStack(path: $chatPath) {
             ZStack {
-                ChatRoomListView(path: $chatPath, showSearchSheet: $showSearchSheet)
+                ChatRoomListView(path: $chatPath, showSearchSheet: $showSearchSheet, roomForFullScreen: $roomForFullScreen, isPad: isPad)
                     .navigationTitle("チャット")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -49,6 +52,19 @@ struct MainTabView: View {
             }
             .background(AppTheme.background)
             .preferredColorScheme(.light)
+        }
+        .fullScreenCover(item: $roomForFullScreen) { room in
+            NavigationStack {
+                ChatView(roomId: room.id, roomName: room.name, onRoomUpdated: { })
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("閉じる") { roomForFullScreen = nil }
+                                .foregroundStyle(AppTheme.textPrimary)
+                        }
+                    }
+            }
+            .environmentObject(appState)
+            .environmentObject(subscriptionManager)
         }
         .sheet(isPresented: $showSideMenu) {
             SideMenuView(onSubscriptionTap: {
