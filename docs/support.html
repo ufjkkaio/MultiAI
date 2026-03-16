@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>サポート / Support - MultiAI</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 640px; margin: 0 auto; padding: 24px; line-height: 1.6; }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.1rem; margin-top: 1.5em; }
+    p, li { margin: 0.5em 0; }
+    .lang-switch { margin-bottom: 1em; }
+    .lang-switch a { margin-right: 1em; }
+    [data-lang].hidden { display: none; }
+  </style>
+</head>
+<body>
+  <p class="lang-switch"><a href="#" data-set-lang="ja">日本語</a> | <a href="#" data-set-lang="en">English</a></p>
+
+  <div id="lang-ja" data-lang="ja">
+    <h1>MultiAI サポート / お問い合わせ</h1>
+    <p>MultiAI に関するご質問・不具合のご報告・ご意見などがありましたら、下記の連絡先までご連絡ください。</p>
+
+    <h2>お問い合わせ先</h2>
+    <p><strong>メールアドレス：</strong><a href="mailto:info@freewall-app.com">info@freewall-app.com</a></p>
+
+    <h2>ご連絡の際にお知らせいただきたい内容</h2>
+    <ul>
+      <li>ご利用の端末・OS：例）iPhone 15 / iOS 17.4</li>
+      <li>MultiAI のバージョン：例）1.0.0</li>
+      <li>発生した問題の内容</li>
+      <li>再現手順（どの画面で、何をしたときに起きたか）</li>
+      <li>可能であればスクリーンショット</li>
+    </ul>
+
+    <h2>ご注意</h2>
+    <ul>
+      <li>氏名・住所・クレジットカード番号などの機微な個人情報は、必要な場合を除き記載しないでください。</li>
+      <li>内容によっては、返信に数日お時間をいただく場合があります。</li>
+    </ul>
+
+    <h2>関連リンク</h2>
+    <ul>
+      <li><a href="terms-of-use.html">利用規約</a></li>
+      <li><a href="privacy-policy.html">プライバシーポリシー</a></li>
+    </ul>
+  </div>
+
+  <div id="lang-en" data-lang="en" class="hidden">
+    <h1>MultiAI Support / Contact</h1>
+    <p>If you have any questions, bug reports, or feedback about MultiAI, please contact us using the information below.</p>
+
+    <h2>Contact</h2>
+    <p><strong>Email:</strong> <a href="mailto:info@freewall-app.com">info@freewall-app.com</a></p>
+
+    <h2>Helpful information to include</h2>
+    <ul>
+      <li>Device and OS: e.g. iPhone 15 / iOS 17.4</li>
+      <li>MultiAI app version: e.g. 1.0.0</li>
+      <li>Description of the issue</li>
+      <li>Steps to reproduce (which screen, what you did)</li>
+      <li>Screenshots, if available</li>
+    </ul>
+
+    <h2>Notes</h2>
+    <ul>
+      <li>Please do not include sensitive personal information (such as full name, address, or credit card numbers) unless strictly necessary.</li>
+      <li>Depending on the content, it may take a few days for us to respond.</li>
+    </ul>
+
+    <h2>Related links</h2>
+    <ul>
+      <li><a href="terms-of-use.html">Terms of Use</a></li>
+      <li><a href="privacy-policy.html">Privacy Policy</a></li>
+    </ul>
+  </div>
+
+  <script>
+    (function() {
+      var key = 'multiai_support_lang';
+      function preferJa() {
+        var lang = typeof navigator !== 'undefined' && (navigator.language || navigator.userLanguage || '');
+        return (lang && (lang.toLowerCase().indexOf('ja') === 0));
+      }
+      function showLang(lang) {
+        var ja = document.getElementById('lang-ja');
+        var en = document.getElementById('lang-en');
+        if (!ja || !en) return;
+        if (lang === 'ja') {
+          ja.classList.remove('hidden');
+          en.classList.add('hidden');
+        } else {
+          ja.classList.add('hidden');
+          en.classList.remove('hidden');
+        }
+        try { localStorage.setItem(key, lang); } catch (e) {}
+      }
+      function init() {
+        var saved = null;
+        try { saved = localStorage.getItem(key); } catch (e) {}
+        var lang = (saved === 'ja' || saved === 'en') ? saved : (preferJa() ? 'ja' : 'en');
+        showLang(lang);
+        document.querySelectorAll('[data-set-lang]').forEach(function(a) {
+          a.addEventListener('click', function(e) {
+            e.preventDefault();
+            showLang(a.getAttribute('data-set-lang'));
+          });
+        });
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        init();
+      }
+    })();
+  </script>
+</body>
+</html>
+
