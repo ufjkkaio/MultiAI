@@ -42,6 +42,8 @@ final class SubscriptionManager: ObservableObject {
         guard let url = URL(string: APIClient.baseURL + "/subscription/status") else { return }
         var req = URLRequest(url: url)
         req.allHTTPHeaderFields = APIClient.authHeader(token)
+        // Authorization が変わる（ゲスト->ログイン等）のでキャッシュを確実に無効化
+        req.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         
         do {
             let (data, _) = try await URLSession.shared.data(for: req)

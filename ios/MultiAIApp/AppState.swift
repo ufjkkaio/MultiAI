@@ -55,11 +55,23 @@ final class AppState: ObservableObject {
         
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
+        // guestBootstrap がハングして ProgressView が終わらない事態を避ける
+        req.timeoutInterval = 30
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONEncoder().encode(["guestId": guestId])
         
         do {
-            let (data, _) = try await URLSession.shared.data(for: req)
+            struct GuestBootstrapTimeoutError: Error {}
+            let (data, _) = try await withThrowingTaskGroup(of: (Data, URLResponse).self) { group in
+                group.addTask { try await URLSession.shared.data(for: req) }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: 30 * 1_000_000_000)
+                    throw GuestBootstrapTimeoutError()
+                }
+                let result = try await group.next()!
+                group.cancelAll()
+                return result
+            }
             let res = try JSONDecoder().decode(AuthResponse.self, from: data)
             authToken = res.token
             userId = res.userId

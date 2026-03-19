@@ -225,6 +225,8 @@ struct ChatRoomListView: View {
         guard let url = URL(string: APIClient.baseURL + "/chat/rooms") else { return }
         var req = URLRequest(url: url)
         req.allHTTPHeaderFields = APIClient.authHeader(token)
+        // authToken が変わるので、過去レスポンスのキャッシュを使わない
+        req.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
 
         isLoading = true
         Task {

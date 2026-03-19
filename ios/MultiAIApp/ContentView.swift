@@ -23,5 +23,10 @@ struct ContentView: View {
                 await appState.bootstrapGuestIfNeeded()
             }
         }
+        .onChange(of: appState.authToken) { _, token in
+            // logout などで authToken が nil になった場合に、ゲスト再生成を確実に走らせる
+            guard appState.isAgreed, token == nil else { return }
+            Task { await appState.bootstrapGuestIfNeeded() }
+        }
     }
 }

@@ -15,6 +15,8 @@ struct MainTabView: View {
         NavigationStack(path: $chatPath) {
             ZStack {
                 ChatRoomListView(path: $chatPath, showSearchSheet: $showSearchSheet, roomForFullScreen: $roomForFullScreen, isPad: isPad)
+                    // authToken が同じ値になっても確実に作り直したいので、guest/login 状態で id を切り替える
+                    .id(appState.isGuestMode ? "guest" : "login")
                     .navigationTitle("チャット")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -78,6 +80,15 @@ struct MainTabView: View {
                 .environmentObject(subscriptionManager)
         }
         .onAppear {
+            Task { await subscriptionManager.refreshSubscriptionStatus() }
+        }
+        .onChange(of: appState.authToken) { _, token in
+            guard token != nil else { return }
+            Task { await subscriptionManager.refreshSubscriptionStatus() }
+        }
+        .onChange(of: appState.isGuestMode) { _, isGuestMode in
+            // ゲスト -> ログイン に入った瞬間に必ず最新を取り直す
+            guard !isGuestMode else { return }
             Task { await subscriptionManager.refreshSubscriptionStatus() }
         }
     }
