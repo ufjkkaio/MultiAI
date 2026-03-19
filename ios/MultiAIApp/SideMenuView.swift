@@ -5,6 +5,8 @@ struct SideMenuView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @Environment(\.dismiss) private var dismiss
     var onSubscriptionTap: () -> Void
+    @State private var showDeleteAccountAlert = false
+    @State private var deleteErrorMessage: String?
 
     private let termsURL = URL(string: "https://ufjkkaio.github.io/MultiAI/terms-of-use.html")
     private let privacyURL = URL(string: "https://ufjkkaio.github.io/MultiAI/privacy-policy.html")
@@ -74,6 +76,13 @@ struct SideMenuView: View {
 
                 Section {
                     Button(role: .destructive) {
+                        showDeleteAccountAlert = true
+                    } label: {
+                        Label("Delete Account", systemImage: "person.crop.circle.badge.minus")
+                    }
+                    .listRowBackground(AppTheme.surface)
+
+                    Button(role: .destructive) {
                         appState.logout()
                         dismiss()
                     } label: {
@@ -97,6 +106,43 @@ struct SideMenuView: View {
                     }
                 }
             }
+            .alert("Delete Account", isPresented: $showDeleteAccountAlert) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    Task { await deleteAccount() }
+                }
+            } message: {
+                Text("Your account and related data will be permanently deleted. This action cannot be undone. " +
+                     "Your App Store subscription will not be canceled automatically.")
+            }
+            .alert("Error", isPresented: Binding(
+                get: { deleteErrorMessage != nil },
+                set: { if !$0 { deleteErrorMessage = nil } }
+            )) {
+                Button("Close", role: .cancel) {}
+            } message: {
+                Text(deleteErrorMessage ?? "")
+            }
+        }
+    }
+
+    private func deleteAccount() async {
+        guard let token = appState.authToken else { return }
+        guard let url = URL(string: APIClient.baseURL + "/user/account") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        req.allHTTPHeaderFields = APIClient.authHeader(token)
+
+        do {
+            let (_, resp) = try await URLSession.shared.data(for: req)
+            guard let code = (resp as? HTTPURLResponse)?.statusCode, (200 ... 299).contains(code) else {
+                deleteErrorMessage = "Failed to delete account. Please try again later."
+                return
+            }
+            appState.logout()
+            dismiss()
+        } catch {
+            deleteErrorMessage = "Failed to delete account. Please try again later."
         }
     }
 }

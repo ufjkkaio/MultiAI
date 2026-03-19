@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const { authWithApple, findOrCreateUserByAppleId, signToken } = require('../auth');
 const { query } = require('../db');
 
@@ -17,6 +18,22 @@ router.post('/apple', async (req, res) => {
   } catch (err) {
     console.error('Auth error:', err);
     res.status(401).json({ error: err.message || 'Authentication failed' });
+  }
+});
+
+/**
+ * ゲスト用: ログイン画面を出さずに利用するための簡易セッション発行。
+ * Apple 個人情報の入力は行わない（端末ごとの匿名セッション）。
+ */
+router.post('/guest', async (req, res) => {
+  try {
+    const guestAppleUserId = `guest-${crypto.randomUUID()}`;
+    const userId = await findOrCreateUserByAppleId(guestAppleUserId);
+    const token = signToken(userId);
+    res.json({ token, userId });
+  } catch (err) {
+    console.error('Guest auth error:', err);
+    res.status(500).json({ error: err.message || 'Failed to create guest session' });
   }
 });
 

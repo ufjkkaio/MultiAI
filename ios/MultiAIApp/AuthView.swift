@@ -86,6 +86,7 @@ struct AuthView: View {
             await MainActor.run {
                 appState.authToken = res.token
                 appState.userId = res.userId
+                appState.isGuestMode = false
                 errorMessage = nil
             }
         } catch {
