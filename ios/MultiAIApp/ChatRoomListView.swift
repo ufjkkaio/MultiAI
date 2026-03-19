@@ -131,16 +131,26 @@ struct ChatRoomListView: View {
         }
         .listStyle(.plain)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            Button {
-                showCreateSheet = true
-            } label: {
-                Image(systemName: "plus")
-                    .font(.title2)
-                    .fontWeight(.medium)
-                    .frame(width: 44, height: 44)
-                    .background(AppTheme.accent)
-                    .foregroundStyle(.white)
-                    .clipShape(Circle())
+            VStack(spacing: 6) {
+                if appState.isGuestMode {
+                    Text("ゲスト：最大3通。\nログイン後さらに最大3通（引き継ぎなし）。")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+                }
+                Button {
+                    showCreateSheet = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.title2)
+                        .fontWeight(.medium)
+                        .frame(width: 44, height: 44)
+                        .background(AppTheme.accent)
+                        .foregroundStyle(.white)
+                        .clipShape(Circle())
+                }
             }
             .padding()
             .background(AppTheme.background)

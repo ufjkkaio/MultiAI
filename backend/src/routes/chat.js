@@ -370,7 +370,6 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
       : parseProviders(roomCheck.rows[0].selected_providers);
 
     const subscribed = await checkSubscription(req.userId);
-    const count = await getCurrentUsage(req.userId);
 
     if (!subscribed) {
       if (mergedAttachments.length > 0) {
@@ -379,21 +378,42 @@ router.post('/rooms/:roomId/messages', async (req, res) => {
           code: 'ATTACHMENT_REQUIRED_SUBSCRIPTION',
         });
       }
-      if (count >= config.freeMessageAllowance) {
+      if (config.freeMessageAllowance <= 0) {
+        return res.status(403).json({
+          error: 'Free allowance used. Subscription required.',
+          code: 'SUBSCRIPTION_REQUIRED',
+        });
+      }
+
+      // 無料枠の増加はアトミックにして、同時リクエストでも上限超過しにくくする
+      const period = getCurrentPeriod();
+      const inc = await query(
+        `INSERT INTO usage_counts (user_id, period, count)
+         VALUES ($1, $2, 1)
+         ON CONFLICT (user_id, period) DO UPDATE
+         SET count = usage_counts.count + 1
+         WHERE usage_counts.count < $3
+         RETURNING count`,
+        [req.userId, period, config.freeMessageAllowance]
+      );
+
+      if (inc.rowCount === 0) {
         return res.status(403).json({
           error: 'Free allowance used. Subscription required.',
           code: 'SUBSCRIPTION_REQUIRED',
         });
       }
     } else {
+      const count = await getCurrentUsage(req.userId);
       if (count >= config.monthlyMessageLimit) {
         return res.status(429).json({
           error: 'Monthly limit reached',
           code: 'MONTHLY_LIMIT_REACHED',
         });
       }
+
+      await incrementUsage(req.userId);
     }
-    await incrementUsage(req.userId);
 
     // 会話履歴: 直近 N 件を取得（古い順でAPIに渡す）。件数は config.chatHistoryLimit でコストと文脈のバランスを調整
     const historyLimit = config.chatHistoryLimit;

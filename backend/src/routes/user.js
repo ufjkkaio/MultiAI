@@ -43,8 +43,20 @@ router.patch('/preferences', async (req, res) => {
 /** アカウント削除（ユーザー配下データを含め完全削除） */
 router.delete('/account', async (req, res) => {
   try {
+    // ゲスト（匿名）ユーザーは無料枠のリセット対策として削除できないようにする
+    const userRow = await query(
+      'SELECT id, apple_user_id FROM users WHERE id = $1',
+      [req.userId]
+    );
+
+    if (userRow.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+
+    const appleUserId = String(userRow.rows[0].apple_user_id ?? '');
+    if (appleUserId.startsWith('guest-')) {
+      return res.status(403).json({ error: 'Guest accounts cannot be deleted' });
+    }
+
     const r = await query('DELETE FROM users WHERE id = $1 RETURNING id', [req.userId]);
-    if (r.rowCount === 0) return res.status(404).json({ error: 'User not found' });
     res.status(204).send();
   } catch (err) {
     console.error(err);

@@ -76,12 +76,14 @@ struct SideMenuView: View {
                 }
 
                 Section {
-                    Button(role: .destructive) {
-                        showDeleteAccountAlert = true
-                    } label: {
-                        Label("アカウントを削除", systemImage: "person.crop.circle.badge.minus")
+                    if !appState.isGuestMode {
+                        Button(role: .destructive) {
+                            showDeleteAccountAlert = true
+                        } label: {
+                            Label("アカウントを削除", systemImage: "person.crop.circle.badge.minus")
+                        }
+                        .listRowBackground(AppTheme.surface)
                     }
-                    .listRowBackground(AppTheme.surface)
                     
                     Button(role: .destructive) {
                         appState.logout()
@@ -105,6 +107,12 @@ struct SideMenuView: View {
                             .font(.title2)
                             .foregroundStyle(AppTheme.textSecondary)
                     }
+                }
+            }
+            .onChange(of: appState.isGuestMode) { _, isGuest in
+                if isGuest {
+                    showDeleteAccountAlert = false
+                    deleteErrorMessage = nil
                 }
             }
             .alert("アカウントを削除", isPresented: $showDeleteAccountAlert) {

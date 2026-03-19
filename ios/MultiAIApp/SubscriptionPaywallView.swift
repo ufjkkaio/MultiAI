@@ -3,7 +3,12 @@ import StoreKit
 
 struct SubscriptionPaywallView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
+    @EnvironmentObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
+
+    @State private var showAuthForPurchase = false
+    @State private var pendingPurchaseAfterLogin = false
+    @State private var pendingRestoreAfterLogin = false
 
     var body: some View {
         NavigationStack {
@@ -48,6 +53,12 @@ struct SubscriptionPaywallView: View {
 
                     VStack(spacing: 12) {
                         Button {
+                            if appState.isGuestMode {
+                                pendingPurchaseAfterLogin = true
+                                pendingRestoreAfterLogin = false
+                                showAuthForPurchase = true
+                                return
+                            }
                             Task { await subscriptionManager.purchase() }
                         } label: {
                             HStack {
@@ -68,6 +79,12 @@ struct SubscriptionPaywallView: View {
                         .disabled(subscriptionManager.isLoading || subscriptionManager.products.isEmpty)
 
                         Button {
+                            if appState.isGuestMode {
+                                pendingRestoreAfterLogin = true
+                                pendingPurchaseAfterLogin = false
+                                showAuthForPurchase = true
+                                return
+                            }
                             Task { await subscriptionManager.restore() }
                         } label: {
                             Text("購入を復元")
@@ -85,6 +102,18 @@ struct SubscriptionPaywallView: View {
             .onAppear {
                 Task { await subscriptionManager.loadProducts() }
             }
+            .onChange(of: appState.isGuestMode) { _, isGuest in
+                guard !isGuest else { return }
+                if pendingPurchaseAfterLogin {
+                    pendingPurchaseAfterLogin = false
+                    showAuthForPurchase = false
+                    Task { await subscriptionManager.purchase() }
+                } else if pendingRestoreAfterLogin {
+                    pendingRestoreAfterLogin = false
+                    showAuthForPurchase = false
+                    Task { await subscriptionManager.restore() }
+                }
+            }
             .onChange(of: subscriptionManager.isActive) { _, active in
                 if active {
                     dismiss()
@@ -100,6 +129,9 @@ struct SubscriptionPaywallView: View {
                             .foregroundStyle(AppTheme.textSecondary)
                     }
                 }
+            }
+            .fullScreenCover(isPresented: $showAuthForPurchase) {
+                AuthView()
             }
         }
     }

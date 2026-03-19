@@ -377,6 +377,8 @@ struct ChatView: View {
                     await MainActor.run {
                         if err?.code == "ATTACHMENT_REQUIRED_SUBSCRIPTION" {
                             errorMessage = "写真・ファイル添付は課金後にご利用ください"
+                        } else if err?.code == "SUBSCRIPTION_REQUIRED" {
+                            errorMessage = "サブスクリプションが必要です"
                         } else {
                             errorMessage = err?.error ?? "サブスクリプションが必要です"
                         }
