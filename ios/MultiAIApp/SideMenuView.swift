@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 
 struct SideMenuView: View {
     @EnvironmentObject var appState: AppState
@@ -8,6 +9,15 @@ struct SideMenuView: View {
 
     @State private var showDeleteAccountAlert = false
     @State private var deleteErrorMessage: String?
+    @State private var showLoginSheet = false
+
+    private var loginButtonLabel: String {
+        let lang = Locale.current.languageCode ?? ""
+        if lang.lowercased().hasPrefix("ja") {
+            return "Appleでサインイン"
+        }
+        return "Sign in with Apple"
+    }
 
     private let termsURL = URL(string: "https://ufjkkaio.github.io/MultiAI/terms-of-use.html")
     private let privacyURL = URL(string: "https://ufjkkaio.github.io/MultiAI/privacy-policy.html")
@@ -85,13 +95,22 @@ struct SideMenuView: View {
                         .listRowBackground(AppTheme.surface)
                     }
                     
-                    Button(role: .destructive) {
-                        appState.logout()
-                        dismiss()
-                    } label: {
-                        Label("ログアウト", systemImage: "rectangle.portrait.and.arrow.right")
+                    if appState.isGuestMode {
+                        Button {
+                            showLoginSheet = true
+                        } label: {
+                            Label(loginButtonLabel, systemImage: "person.crop.circle.badge.plus")
+                        }
+                        .listRowBackground(AppTheme.surface)
+                    } else {
+                        Button(role: .destructive) {
+                            appState.logout()
+                            dismiss()
+                        } label: {
+                            Label("ログアウト", systemImage: "rectangle.portrait.and.arrow.right")
+                        }
+                        .listRowBackground(AppTheme.surface)
                     }
-                    .listRowBackground(AppTheme.surface)
                 }
             }
             .scrollContentBackground(.hidden)
@@ -114,6 +133,9 @@ struct SideMenuView: View {
                     showDeleteAccountAlert = false
                     deleteErrorMessage = nil
                 }
+                if !isGuest {
+                    showLoginSheet = false
+                }
             }
             .alert("アカウントを削除", isPresented: $showDeleteAccountAlert) {
                 Button("キャンセル", role: .cancel) {}
@@ -130,6 +152,9 @@ struct SideMenuView: View {
                 Button("閉じる", role: .cancel) {}
             } message: {
                 Text(deleteErrorMessage ?? "")
+            }
+            .fullScreenCover(isPresented: $showLoginSheet) {
+                AuthView()
             }
         }
     }
