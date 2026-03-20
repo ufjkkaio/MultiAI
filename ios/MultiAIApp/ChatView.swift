@@ -17,6 +17,7 @@ struct ChatView: View {
     var onRoomUpdated: (() -> Void)?
 
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var subscriptionManager: SubscriptionManager
     @State private var displayName: String
     @State private var messages: [Message] = []
     @State private var inputText = ""
@@ -29,6 +30,7 @@ struct ChatView: View {
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var selectedImageDatas: [Data] = []
     @State private var showAttachmentSubscriptionAlert = false
+    @State private var didRefreshFreeRemainingForThisSend = false
 
     init(roomId: String, roomName: String? = nil, onRoomUpdated: (() -> Void)? = nil) {
         self.roomId = roomId
@@ -360,6 +362,7 @@ struct ChatView: View {
         ))
 
         isSending = true
+        didRefreshFreeRemainingForThisSend = false
         inputText = ""
         selectedPhotoItems = []
         selectedImageDatas = []
@@ -403,6 +406,13 @@ struct ChatView: View {
                         messages.append(Message(id: UUID().uuidString, role: "user", provider: nil, content: res.userMessage.content, expandedFromId: nil, attachmentBase64: nil, attachmentMediaType: nil, attachments: nil, createdAt: nil))
                         messages.append(contentsOf: res.assistantMessages)
                         isSending = false
+                    }
+                    if subscriptionManager.freeRemaining != nil && !didRefreshFreeRemainingForThisSend {
+                        didRefreshFreeRemainingForThisSend = true
+                        if let remaining = subscriptionManager.freeRemaining, remaining > 0 {
+                            subscriptionManager.freeRemaining = remaining - 1
+                        }
+                        Task { await subscriptionManager.refreshSubscriptionStatus() }
                     }
                     return
                 }
@@ -485,6 +495,13 @@ struct ChatView: View {
                 loadMessages() // 保存済みメッセージを表示するため再取得
             case "done":
                 loadMessages()
+                if subscriptionManager.freeRemaining != nil && !didRefreshFreeRemainingForThisSend {
+                    didRefreshFreeRemainingForThisSend = true
+                    if let remaining = subscriptionManager.freeRemaining, remaining > 0 {
+                        subscriptionManager.freeRemaining = remaining - 1
+                    }
+                    Task { await subscriptionManager.refreshSubscriptionStatus() }
+                }
             default:
                 break
             }
